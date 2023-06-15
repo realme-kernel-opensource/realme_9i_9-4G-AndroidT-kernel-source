@@ -13,6 +13,10 @@
 
 #include "walt.h"
 
+#ifdef CONFIG_OPLUS_FEATURE_GAME_OPT
+#include "../../drivers/soc/oplus/game_opt/game_ctrl.h"
+#endif
+
 int sched_rr_timeslice = RR_TIMESLICE;
 int sysctl_sched_rr_timeslice = (MSEC_PER_SEC / HZ) * RR_TIMESLICE;
 
@@ -1051,6 +1055,9 @@ static void update_curr_rt(struct rq *rq)
 
 	curr->se.exec_start = now;
 	cgroup_account_cputime(curr, delta_exec);
+#ifdef CONFIG_OPLUS_FEATURE_GAME_OPT
+	g_update_task_runtime(curr, delta_exec);
+#endif
 
 	if (!rt_bandwidth_enabled())
 		return;
@@ -1771,6 +1778,12 @@ static int rt_energy_aware_wake_cpu(struct task_struct *task)
 	int best_cpu_idle_idx = INT_MAX;
 	int cpu_idle_idx = -1;
 	bool boost_on_big = rt_boost_on_big();
+
+#ifdef CONFIG_OPLUS_SF_BOOST
+	/* For surfaceflinger with util > 90, prefer to use big core */
+	if (task->compensate_need == 2 && tutil > 90)
+		boost_on_big = true;
+#endif
 
 	rcu_read_lock();
 

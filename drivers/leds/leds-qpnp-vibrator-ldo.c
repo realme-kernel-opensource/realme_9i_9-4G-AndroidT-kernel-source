@@ -13,6 +13,13 @@
 #include <linux/of_device.h>
 #include <linux/regmap.h>
 #include <linux/workqueue.h>
+#ifdef OPLUS_FEATURE_CHG_BASIC
+#include <linux/gpio.h>
+#include <linux/of_gpio.h>
+
+#undef pr_debug
+#define pr_debug pr_err
+#endif
 
 /* Vibrator-LDO register definitions */
 #define QPNP_VIB_LDO_REG_STATUS1	0x08
@@ -32,7 +39,9 @@
  * Define vibration periods: default(5sec), min(50ms), max(15sec) and
  * overdrive(30ms).
  */
-#define QPNP_VIB_MIN_PLAY_MS		50
+#ifdef OPLUS_FEATURE_CHG_BASIC
+#define QPNP_VIB_MIN_PLAY_MS		35
+#endif
 #define QPNP_VIB_PLAY_MS		5000
 #define QPNP_VIB_MAX_PLAY_MS		15000
 #define QPNP_VIB_OVERDRIVE_PLAY_MS	30
@@ -54,13 +63,157 @@ struct vib_ldo_chip {
 	u64			vib_play_ms;
 	bool			vib_enabled;
 	bool			disable_overdrive;
+
+#ifdef OPLUS_FEATURE_CHG_BASIC
+	int type;
+	int vibctrl_gpio;
+	struct pinctrl *pinctrl;
+	struct pinctrl_state *vib_on_high;
+	struct pinctrl_state *vib_off_low;
+	struct mutex vib_pinlock;
+	struct device *dev;
+#endif
 };
+
+#ifdef OPLUS_FEATURE_CHG_BASIC
+typedef enum _VIB_TYPE {
+	VIB_TYPE_LDO,
+	VIB_TYPE_GPIO,
+	VIB_TYPE_INVAL,
+} VIB_TYPE;
+
+
+static int oplus_vibrator_gpio_init(struct vib_ldo_chip *chip)
+{
+	if (!chip) {
+		printk(KERN_ERR "[OPLUS_CHG][%s]: oplus_chip not ready!\n", __func__);
+		return -EINVAL;
+	}
+
+	mutex_init(&chip->vib_pinlock);
+
+	chip->pinctrl = devm_pinctrl_get(chip->dev);
+	if (IS_ERR_OR_NULL(chip->pinctrl)) {
+		pr_err("get chargerid_switch_gpio pinctrl fail\n");
+		return -EINVAL;
+	}
+
+	chip->vib_on_high =
+			pinctrl_lookup_state(chip->pinctrl,
+			"vib_on_high");
+	if (IS_ERR_OR_NULL(chip->vib_on_high)) {
+		pr_err("get vib_on_high fail\n");
+		return -EINVAL;
+	}
+
+	chip->vib_off_low =
+			pinctrl_lookup_state(chip->pinctrl,
+			"vib_off_low");
+	if (IS_ERR_OR_NULL(chip->vib_off_low)) {
+		pr_err("get vib_off_low fail\n");
+		return -EINVAL;
+	}
+
+	gpio_direction_output(chip->vibctrl_gpio, 0);
+
+	printk(KERN_ERR "[OPLUS_CHG][%s]: oplus_chip is ready!\n", __func__);
+	return 0;
+}
+
+int oplus_vibrator_parse_dt(struct vib_ldo_chip *chip)
+{
+	int rc = 0;
+	struct device_node * node = NULL;
+
+	if (!chip) {
+		pr_err("chip null\n");
+		return -1;
+	}
+
+	/* Parsing gpio switch*/
+	node = chip->dev->of_node;
+	chip->vibctrl_gpio = of_get_named_gpio(node,
+		"qcom,vibrator_switch-gpio", 0);
+	if (chip->vibctrl_gpio < 0) {
+		pr_err("chip->vibctrl_gpio not specified\n");
+	} else {
+		if (gpio_is_valid(chip->vibctrl_gpio)) {
+			rc = gpio_request(chip->vibctrl_gpio,
+				"vibrator-switch-gpio");
+			if (rc) {
+				pr_err("unable to request gpio [%d]\n",
+					chip->vibctrl_gpio);
+			} else {
+				rc = oplus_vibrator_gpio_init(chip);
+				if (rc)
+					pr_err("unable to init vibrator-switch-gpio:%d\n",
+							chip->vibctrl_gpio);
+			}
+		}
+		pr_err("chip->vibctrl_gpio =%d\n", chip->vibctrl_gpio);
+	}
+	pr_debug("vibctrl_gpio =%d parse done\n", chip->vibctrl_gpio);
+
+	return 0;
+}
+
+int oplus_vibrator_gpio_val(struct vib_ldo_chip *chip)
+{
+	if (!chip) {
+		pr_err("oplus_vibrator_gpio_val chip null\n");
+		return 0;
+	}
+	return gpio_get_value(chip->vibctrl_gpio);
+}
+
+void oplus_vibrator_on(struct vib_ldo_chip *chip)
+{
+	if (!chip) {
+		pr_err("oplus_vibrator_on chip null\n");
+		return;
+	}
+
+	mutex_lock(&chip->vib_pinlock);
+	pinctrl_select_state(chip->pinctrl, chip->vib_on_high);
+	gpio_direction_output(chip->vibctrl_gpio, 1);	/* out 1*/
+	mutex_unlock(&chip->vib_pinlock);
+	//dump_stack();
+	pr_debug("switch vibrator %d to on\n", oplus_vibrator_gpio_val(chip));
+
+	return;
+}
+
+void oplus_vibrator_off(struct vib_ldo_chip *chip)
+{
+	if (!chip) {
+		pr_err("oplus_vibrator_off chip null\n");
+		return;
+	}
+
+	mutex_lock(&chip->vib_pinlock);
+	pinctrl_select_state(chip->pinctrl, chip->vib_off_low);
+	if (chip->vibctrl_gpio > 0) {
+		gpio_direction_output(chip->vibctrl_gpio, 0);	/* in 0*/
+	}
+	mutex_unlock(&chip->vib_pinlock);
+	//dump_stack();
+	pr_err("switch vibrator %d to off\n", oplus_vibrator_gpio_val(chip));
+
+	return;
+}
+#endif
 
 static inline int qpnp_vib_ldo_poll_status(struct vib_ldo_chip *chip)
 {
 	unsigned int val;
 	int ret;
 
+#ifdef OPLUS_FEATURE_CHG_BASIC
+	if (VIB_TYPE_GPIO == chip->type) {
+		pr_debug("%s VIB_TYPE_GPIO is do nothing\n", __func__);
+		return 0;
+	}
+#endif
 	ret = regmap_read_poll_timeout(chip->regmap,
 			chip->base + QPNP_VIB_LDO_REG_STATUS1, val,
 			val & QPNP_VIB_LDO_VREG_READY, 100, 1000);
@@ -89,6 +242,12 @@ static int qpnp_vib_ldo_set_voltage(struct vib_ldo_chip *chip, int new_uV)
 	vlevel = roundup(new_uV, QPNP_VIB_LDO_VOLT_STEP_UV) / 1000;
 	reg[0] = vlevel & 0xff;
 	reg[1] = (vlevel & 0xff00) >> 8;
+#ifdef OPLUS_FEATURE_CHG_BASIC
+	if (VIB_TYPE_GPIO == chip->type) {
+		ret = 0;
+		pr_debug("[%s] is ret = 0\n", __func__);
+	} else
+#endif
 	ret = regmap_bulk_write(chip->regmap,
 				chip->base + QPNP_VIB_LDO_REG_VSET_LB, reg, 2);
 	if (ret < 0) {
@@ -115,6 +274,16 @@ static inline int qpnp_vib_ldo_enable(struct vib_ldo_chip *chip, bool enable)
 	if (chip->vib_enabled == enable)
 		return 0;
 
+#ifdef OPLUS_FEATURE_CHG_BASIC
+	pr_debug("[%s] vib_type[%s] enable[%d]\n",__func__, chip->type ,enable);
+	if (VIB_TYPE_GPIO == chip->type) {
+		if (enable)
+			oplus_vibrator_on(chip);
+		else
+			oplus_vibrator_off(chip);
+		ret = 0;
+	} else
+#endif
 	ret = regmap_update_bits(chip->regmap,
 				chip->base + QPNP_VIB_LDO_REG_EN_CTL,
 				QPNP_VIB_LDO_EN,
@@ -198,7 +367,11 @@ static enum hrtimer_restart vib_stop_timer(struct hrtimer *timer)
 					     stop_timer);
 
 	chip->state = 0;
+	#ifdef OPLUS_FEATURE_CHG_BASIC
+	queue_work(system_unbound_wq, &chip->vib_work);
+	#else
 	schedule_work(&chip->vib_work);
+	#endif
 	return HRTIMER_NORESTART;
 }
 
@@ -323,12 +496,24 @@ static ssize_t qpnp_vib_store_activate(struct device *dev,
 	if (val != 0 && val != 1)
 		return count;
 
+	#ifdef OPLUS_FEATURE_CHG_BASIC
+	if ((hrtimer_active(&chip->stop_timer))&&
+		(chip->vib_play_ms == QPNP_VIB_MIN_PLAY_MS))
+		return count;
+	#endif
+
 	mutex_lock(&chip->lock);
 	hrtimer_cancel(&chip->stop_timer);
 	chip->state = val;
-	pr_debug("state = %d, time = %llums\n", chip->state, chip->vib_play_ms);
+	#ifdef OPLUS_FEATURE_CHG_BASIC
+	pr_info("state = %d, time = %llums\n", chip->state, chip->vib_play_ms);
+	#endif
 	mutex_unlock(&chip->lock);
+	#ifdef OPLUS_FEATURE_CHG_BASIC
+	queue_work(system_unbound_wq, &chip->vib_work);
+	#else
 	schedule_work(&chip->vib_work);
+	#endif
 
 	return count;
 }
@@ -406,7 +591,9 @@ static int qpnp_vib_parse_dt(struct device *dev, struct vib_ldo_chip *chip)
 		chip->overdrive_volt_uV = max(chip->overdrive_volt_uV,
 						QPNP_VIB_LDO_VMIN_UV);
 	}
-
+#ifdef OPLUS_FEATURE_CHG_BASIC
+	oplus_vibrator_parse_dt(chip);
+#endif
 	return ret;
 }
 
@@ -447,6 +634,9 @@ static int qpnp_vibrator_ldo_probe(struct platform_device *pdev)
 	int i, ret;
 	u32 base;
 
+#ifdef OPLUS_FEATURE_CHG_BASIC
+	pr_err("%s start under &soc\n", __func__);
+#endif
 	ret = of_property_read_u32(of_node, "reg", &base);
 	if (ret < 0) {
 		pr_err("reg property reading failed, ret=%d\n", ret);
@@ -457,12 +647,32 @@ static int qpnp_vibrator_ldo_probe(struct platform_device *pdev)
 	if (!chip)
 		return -ENOMEM;
 
+#ifdef OPLUS_FEATURE_CHG_BASIC
+	chip->dev = &pdev->dev;
+	chip->type = VIB_TYPE_LDO;
+	ret = of_property_read_u32(of_node, "qcom,vib-type",
+				&chip->type);
+	if (ret < 0) {
+		pr_err("qcom,vib-type read failed, ret=%d\n",
+			ret);
+	}
+	pr_debug("qcom,vib-type = %d\n", chip->type);
+	if (VIB_TYPE_GPIO == chip->type) {
+		//do nothing
+	} else {
+		chip->regmap = dev_get_regmap(pdev->dev.parent, NULL);
+		if (!chip->regmap) {
+			pr_err("couldn't get parent's regmap\n");
+			return -EINVAL;
+		}
+	}
+#else
 	chip->regmap = dev_get_regmap(pdev->dev.parent, NULL);
 	if (!chip->regmap) {
 		pr_err("couldn't get parent's regmap\n");
 		return -EINVAL;
 	}
-
+#endif
 	ret = qpnp_vib_parse_dt(&pdev->dev, chip);
 	if (ret < 0) {
 		pr_err("couldn't parse device tree, ret=%d\n", ret);

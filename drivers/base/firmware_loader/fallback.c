@@ -546,6 +546,7 @@ static int fw_load_sysfs_fallback(struct fw_sysfs *fw_sysfs,
 	struct device *f_dev = &fw_sysfs->dev;
 	struct fw_priv *fw_priv = fw_sysfs->fw_priv;
 
+
 	/* fall back on userspace loading */
 	if (!fw_priv->data)
 		fw_priv->is_paged_buf = true;

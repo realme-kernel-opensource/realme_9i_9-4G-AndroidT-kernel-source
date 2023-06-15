@@ -6,6 +6,14 @@
 #ifndef __QG_CORE_H__
 #define __QG_CORE_H__
 
+#ifdef OPLUS_FEATURE_CHG_BASIC
+/* Yichun.Chen PSW.BSP.CHG  2018-05-04  Add for debug */
+#define qg_debug(fmt, ...) \
+        printk(KERN_NOTICE "[OPPO_CHG][%s]"fmt, __func__, ##__VA_ARGS__)
+
+#define qg_err(fmt, ...) \
+        printk(KERN_ERR "[OPPO_CHG][%s]"fmt, __func__, ##__VA_ARGS__)
+#endif
 #include <linux/kernel.h>
 #include "fg-alg.h"
 #include "qg-defs.h"
@@ -75,6 +83,9 @@ struct qg_dt {
 	bool			multi_profile_load;
 	bool			tcss_enable;
 	bool			bass_enable;
+#ifdef OPLUS_FEATURE_CHG_BASIC
+	bool			qg_hi_current_cfg;
+#endif
 };
 
 struct qg_esr_data {
@@ -118,6 +129,10 @@ struct qpnp_qg {
 
 	/* local data variables */
 	u32			batt_id_ohm;
+	#ifdef OPLUS_FEATURE_CHG_BASIC
+	u32			batt_id_kohm;
+	u32			project_index;
+	#endif
 	struct qg_kernel_data	kdata;
 	struct qg_user_data	udata;
 	struct power_supply	*batt_psy;
@@ -143,6 +158,9 @@ struct qpnp_qg {
 	bool			charge_full;
 	bool			force_soc;
 	bool			fvss_active;
+#ifdef OPLUS_FEATURE_CHG_BASIC
+	bool			enable_qpnp_qg;
+#endif
 	bool			tcss_active;
 	bool			bass_active;
 	bool			first_profile_load;
@@ -182,7 +200,9 @@ struct qpnp_qg {
 	unsigned long		suspend_time;
 	struct iio_channel	*batt_therm_chan;
 	struct iio_channel	*batt_id_chan;
-
+#ifdef OPLUS_FEATURE_CHG_BASIC
+	struct iio_channel	*parallel_isense_chan;
+#endif
 	/* soc params */
 	int			catch_up_soc;
 	int			maint_soc;
@@ -206,7 +226,36 @@ struct qpnp_qg {
 	/* charge counter */
 	struct cycle_counter	*counter;
 	/* ttf */
-	struct ttf		*ttf;
+	struct ttf		*ttf;  
+#ifdef OPLUS_FEATURE_CHG_BASIC
+    /* Yichun.Chen  PSW.BSP.CHG  2018-06-13  avoid when reboot soc reduce 1% */
+        int         skip_scale_soc_count;
+#endif
+
+#ifdef OPLUS_FEATURE_CHG_BASIC
+/* Yichun.Chen  PSW.BSP.CHG  2018-08-23  recognize SDI\ATL battery */
+	int			atl_4_45_battery_id_low;
+	int			atl_4_45_battery_id_high;
+	int			atl_4_4_battery_id_low;
+	int			atl_4_4_battery_id_high;
+	int			sdi_4_45_battery_id_low;
+	int			sdi_4_45_battery_id_high;
+	int			sdi_4_4_battery_id_low;
+	int			sdi_4_4_battery_id_high;
+	int			lw_battery_id_low;
+	int			lw_battery_id_high;
+	int			cl_battery_id_low;
+	int			cl_battery_id_high;
+#endif
+
+#ifdef OPLUS_FEATURE_CHG_BASIC
+/* Ji.Xu PSW.BSP.CHG  2018-07-23  Save battery capacity to persist partition */
+    int				batt_info[6];
+    int				batt_info_id;
+    bool			*batt_range_ocv;
+    int				*batt_range_pct;
+#endif
+
 };
 
 struct ocv_all {

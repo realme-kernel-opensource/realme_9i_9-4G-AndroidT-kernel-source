@@ -42,6 +42,9 @@
 #include "blk.h"
 #include "blk-mq-sched.h"
 #include "blk-wbt.h"
+#if defined(OPLUS_FEATURE_SCHED_ASSIST) && defined(CONFIG_OPLUS_FEATURE_UXIO_FIRST)
+#include "uxio_first/uxio_first_opt.h"
+#endif
 
 static DEFINE_SPINLOCK(elv_list_lock);
 static LIST_HEAD(elv_list);
@@ -394,6 +397,9 @@ void elv_dispatch_sort(struct request_queue *q, struct request *rq)
 	}
 
 	list_add(&rq->queuelist, entry);
+#if defined(OPLUS_FEATURE_SCHED_ASSIST) && defined(CONFIG_OPLUS_FEATURE_UXIO_FIRST)
+	queue_throtl_add_request(q, rq, false);
+#endif
 }
 EXPORT_SYMBOL(elv_dispatch_sort);
 
@@ -414,6 +420,9 @@ void elv_dispatch_add_tail(struct request_queue *q, struct request *rq)
 	q->end_sector = rq_end_sector(rq);
 	q->boundary_rq = rq;
 	list_add_tail(&rq->queuelist, &q->queue_head);
+#if defined(OPLUS_FEATURE_SCHED_ASSIST) && defined(CONFIG_OPLUS_FEATURE_UXIO_FIRST)
+	queue_throtl_add_request(q, rq, false);
+#endif
 }
 EXPORT_SYMBOL(elv_dispatch_add_tail);
 
@@ -593,6 +602,10 @@ void elv_requeue_request(struct request_queue *q, struct request *rq)
 	 */
 	if (blk_account_rq(rq)) {
 		q->in_flight[rq_is_sync(rq)]--;
+#if defined(OPLUS_FEATURE_HEALTHINFO) && defined(CONFIG_OPLUS_HEALTHINFO)
+// Add for ioqueue
+		ohm_ioqueue_dec_inflight(q, rq);
+#endif /*OPLUS_FEATURE_HEALTHINFO*/
 		if (rq->rq_flags & RQF_SORTED)
 			elv_deactivate_rq(q, rq);
 	}
@@ -625,6 +638,11 @@ void elv_drain_elevator(struct request_queue *q)
 
 void __elv_add_request(struct request_queue *q, struct request *rq, int where)
 {
+	struct list_head *entry;
+#if defined(OPLUS_FEATURE_IOMONITOR) && defined(CONFIG_IOMONITOR)
+	rq->req_ti = ktime_get();
+#endif /*OPLUS_FEATURE_IOMONITOR*/
+
 	trace_block_rq_insert(q, rq);
 
 	blk_pm_add_request(q, rq);
@@ -646,13 +664,42 @@ void __elv_add_request(struct request_queue *q, struct request *rq, int where)
 	case ELEVATOR_INSERT_REQUEUE:
 	case ELEVATOR_INSERT_FRONT:
 		rq->rq_flags |= RQF_SOFTBARRIER;
-		list_add(&rq->queuelist, &q->queue_head);
+		// list_add(&rq->queuelist, &q->queue_head);
+		entry = &q->queue_head;
+#ifdef CONFIG_PM
+		/*
+		* PM requests always stay in front, otherwise they can be
+		* starved by non-PM requests whose RQF_SOFTBARRIER flag is
+		* set, see elv_next_request().
+		*/
+		if (rq->q->dev && !(rq->rq_flags & RQF_PM)) {
+			list_for_each(entry, &q->queue_head) {
+				struct request *pos = list_entry_rq(entry);
+
+				/* Found the first non-PM request */
+				if (!(pos->rq_flags & RQF_PM)) {
+					entry = entry->prev;
+					break;
+				}
+
+				if (list_is_last(entry, &q->queue_head))
+					break;
+			}
+		}
+#endif
+		list_add(&rq->queuelist, entry);
+#if defined(OPLUS_FEATURE_SCHED_ASSIST) && defined(CONFIG_OPLUS_FEATURE_UXIO_FIRST)
+		queue_throtl_add_request(q, rq, true);
+#endif
 		break;
 
 	case ELEVATOR_INSERT_BACK:
 		rq->rq_flags |= RQF_SOFTBARRIER;
 		elv_drain_elevator(q);
 		list_add_tail(&rq->queuelist, &q->queue_head);
+#if defined(OPLUS_FEATURE_SCHED_ASSIST) && defined(CONFIG_OPLUS_FEATURE_UXIO_FIRST)
+		queue_throtl_add_request(q, rq, false);
+#endif
 		/*
 		 * We kick the queue here for the following reasons.
 		 * - The elevator might have returned NULL previously
@@ -787,6 +834,10 @@ void elv_completed_request(struct request_queue *q, struct request *rq)
 	 */
 	if (blk_account_rq(rq)) {
 		q->in_flight[rq_is_sync(rq)]--;
+#if defined(OPLUS_FEATURE_HEALTHINFO) && defined(CONFIG_OPLUS_HEALTHINFO)
+// Add for ioqueue
+		ohm_ioqueue_dec_inflight(q, rq);
+#endif /*OPLUS_FEATURE_HEALTHINFO*/
 		if ((rq->rq_flags & RQF_SORTED) &&
 		    e->type->ops.sq.elevator_completed_req_fn)
 			e->type->ops.sq.elevator_completed_req_fn(q, rq);

@@ -25,6 +25,7 @@ extern int acc_ctrlrequest(struct usb_composite_dev *cdev,
 void acc_disconnect(void);
 #endif
 
+
 static struct class *android_class;
 static struct device *android_device;
 static int index;

@@ -980,4 +980,8 @@ config ICNSS_QMI
 	  and configurations. It also send WLAN on/off control message to FW
 	  over QMI channel.
 
+config OPLUS_FEATURE_MODEM_MINIDUMP
+        bool "Add for oplus modem minidump function"
+        help
+          Add for oplus modem minidump function.
 source "drivers/soc/qcom/wcnss/Kconfig"

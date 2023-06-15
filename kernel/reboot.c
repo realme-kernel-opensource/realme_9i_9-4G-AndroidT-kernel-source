@@ -68,10 +68,12 @@ EXPORT_SYMBOL_GPL(emergency_restart);
 
 void kernel_restart_prepare(char *cmd)
 {
+	pr_info("%s:%d: Entry\n", __func__, __LINE__);
 	blocking_notifier_call_chain(&reboot_notifier_list, SYS_RESTART, cmd);
 	system_state = SYSTEM_RESTART;
 	usermodehelper_disable();
 	device_shutdown();
+	pr_info("%s:%d: Exit\n", __func__, __LINE__);
 }
 
 /**
@@ -217,6 +219,7 @@ void migrate_to_reboot_cpu(void)
 {
 	/* The boot cpu is always logical cpu 0 */
 	int cpu = reboot_cpu;
+	pr_info("%s:%d: Entry\n", __func__, __LINE__);
 
 	cpu_hotplug_disable();
 
@@ -229,6 +232,7 @@ void migrate_to_reboot_cpu(void)
 
 	/* Make certain I only run on the appropriate processor */
 	set_cpus_allowed_ptr(current, cpumask_of(cpu));
+	pr_info("%s:%d: Exit\n", __func__, __LINE__);
 }
 
 /**
@@ -241,6 +245,7 @@ void migrate_to_reboot_cpu(void)
  */
 void kernel_restart(char *cmd)
 {
+	pr_info("%s:%d: Entry\n", __func__, __LINE__);
 	kernel_restart_prepare(cmd);
 	migrate_to_reboot_cpu();
 	syscore_shutdown();

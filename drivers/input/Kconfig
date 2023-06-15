@@ -197,6 +197,15 @@ config INPUT_KEYCOMBO
 	---help---
 	  Say Y here if you want to take action when some keys are pressed;
 
+config OPLUS_SECURE_COMMON
+    bool "secure common driver"
+    default n
+    help
+      Say Y here if you have a secure common driver added
+      to your system.
+
+      If unsure, say N.
+
 comment "Input Device Drivers"
 
 source "drivers/input/keyboard/Kconfig"
@@ -212,6 +221,12 @@ source "drivers/input/touchscreen/Kconfig"
 source "drivers/input/misc/Kconfig"
 
 source "drivers/input/rmi4/Kconfig"
+
+
+#ifdef OPLUS_FEATURE_FINGERPRINT
+source "drivers/input/oplus_fp_drivers/Kconfig"
+source "drivers/input/oplus_fp_drivers_old/Kconfig"
+#endif /* OPLUS_FEATURE_FINGERPRINT */
 
 endif
 

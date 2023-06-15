@@ -22,6 +22,9 @@
 #include <linux/pmic-voter.h>
 #include <linux/workqueue.h>
 #include "battery.h"
+#ifdef OPLUS_FEATURE_CHG_BASIC
+#include <soc/oplus/oplus_project.h>
+#endif
 
 #define DRV_MAJOR_VERSION	1
 #define DRV_MINOR_VERSION	0
@@ -30,6 +33,9 @@
 #define CHG_STATE_VOTER			"CHG_STATE_VOTER"
 #define TAPER_STEPPER_VOTER		"TAPER_STEPPER_VOTER"
 #define TAPER_END_VOTER			"TAPER_END_VOTER"
+#ifdef OPLUS_FEATURE_CHG_BASIC
+#define PL_SMB_EN_VOTER			"PL_SMB_EN_VOTER"
+#endif
 #define PL_TAPER_EARLY_BAD_VOTER	"PL_TAPER_EARLY_BAD_VOTER"
 #define PARALLEL_PSY_VOTER		"PARALLEL_PSY_VOTER"
 #define PL_HW_ABSENT_VOTER		"PL_HW_ABSENT_VOTER"
@@ -92,6 +98,9 @@ struct pl_data {
 	int			override_main_fcc_ua;
 	int			total_fcc_ua;
 	u32			wa_flags;
+#ifdef OPLUS_FEATURE_CHG_BASIC
+	u32			project_index;
+#endif
 	struct class		qcom_batt_class;
 	struct wakeup_source	*pl_ws;
 	struct notifier_block	nb;
@@ -141,6 +150,13 @@ enum {
 	PARALLEL_INPUT_MODE,
 	PARALLEL_OUTPUT_MODE,
 };
+
+enum project_index {
+	SODA_PROJECT = 0,
+	RUM_PROJECT,
+	INVALID_PROJECT,
+};
+
 /*********
  * HELPER*
  *********/
@@ -890,7 +906,28 @@ static void pl_taper_work(struct work_struct *work)
 				pr_err("Couldn't get fcc, exiting taper work\n");
 				goto done;
 			}
+#ifdef OPLUS_FEATURE_CHG_BASIC
+			if (chip->project_index == RUM_PROJECT) {
+	            rc = power_supply_get_property(chip->batt_psy,
+					       POWER_SUPPLY_PROP_CURRENT_NOW, &pval);
+				if (rc < 0) {
+					pr_err("Couldn't get batt charge current rc=%d\n", rc);
+					pval.intval = 0;
+				}
+				pr_err("charging current = %d in taper charging\n", pval.intval);
+				if ((pval.intval * -1) < 2000) {
+					vote(chip->pl_disable_votable, PL_SMB_EN_VOTER, true, 0);
+				} else {
+					fcc_ua -= TAPER_REDUCTION_UA;
+				}
+			} else if (chip->project_index == SODA_PROJECT) {
+				vote(chip->pl_disable_votable, PL_SMB_EN_VOTER, true, 0);
+			} else {
+				fcc_ua -= TAPER_REDUCTION_UA;
+			}
+#else
 			fcc_ua -= TAPER_REDUCTION_UA;
+#endif
 			if (fcc_ua < 0) {
 				pr_err("Can't reduce FCC any more\n");
 				goto done;
@@ -1299,11 +1336,21 @@ static int usb_icl_vote_callback(struct votable *votable, void *data,
 	 *	unvote USBIN_I_VOTER) the status_changed_work enables
 	 *	USBIN_I_VOTER based on settled current.
 	 */
-	if (icl_ua <= 1400000)
-		vote(chip->pl_enable_votable_indirect, USBIN_I_VOTER, false, 0);
-	else
-		schedule_delayed_work(&chip->status_change_work,
+#ifdef OPLUS_FEATURE_CHG_BASIC
+	if (chip->project_index == SODA_PROJECT || chip->project_index == RUM_PROJECT) {
+		if (icl_ua <= 1000000)
+			vote(chip->pl_enable_votable_indirect, USBIN_I_VOTER, false, 0);
+		else
+			schedule_delayed_work(&chip->status_change_work,
 						msecs_to_jiffies(PL_DELAY_MS));
+	} else {
+		if (icl_ua <= 1400000)
+			vote(chip->pl_enable_votable_indirect, USBIN_I_VOTER, false, 0);
+		else
+			schedule_delayed_work(&chip->status_change_work,
+						msecs_to_jiffies(PL_DELAY_MS));
+	}
+#endif
 
 	/* rerun AICL */
 	/* get the settled current */
@@ -1768,14 +1815,25 @@ static void handle_settled_icl_change(struct pl_data *chip)
 		return;
 	}
 	main_limited = pval.intval;
-
-	if ((main_limited && (main_settled_ua + chip->pl_settled_ua) < 1400000)
+#ifdef OPLUS_FEATURE_CHG_BASIC
+	if (chip->project_index == SODA_PROJECT || chip->project_index == RUM_PROJECT) {
+		if ((main_limited && (main_settled_ua + chip->pl_settled_ua) < 1000000)
+			|| (main_settled_ua == 0)
+			|| ((total_current_ua >= 0) &&
+				(total_current_ua <= 1000000)))
+			vote(chip->pl_enable_votable_indirect, USBIN_I_VOTER, false, 0);
+		else
+			vote(chip->pl_enable_votable_indirect, USBIN_I_VOTER, true, 0);
+	} else {
+		if ((main_limited && (main_settled_ua + chip->pl_settled_ua) < 1400000)
 			|| (main_settled_ua == 0)
 			|| ((total_current_ua >= 0) &&
 				(total_current_ua <= 1400000)))
-		vote(chip->pl_enable_votable_indirect, USBIN_I_VOTER, false, 0);
-	else
-		vote(chip->pl_enable_votable_indirect, USBIN_I_VOTER, true, 0);
+			vote(chip->pl_enable_votable_indirect, USBIN_I_VOTER, false, 0);
+		else
+			vote(chip->pl_enable_votable_indirect, USBIN_I_VOTER, true, 0);
+	}
+#endif
 
 	rerun_election(chip->fcc_votable);
 
@@ -1861,6 +1919,13 @@ static void handle_usb_change(struct pl_data *chip)
 		vote(chip->pl_disable_votable, PL_TAPER_EARLY_BAD_VOTER,
 				false, 0);
 		vote(chip->pl_disable_votable, ICL_LIMIT_VOTER, false, 0);
+#ifdef OPLUS_FEATURE_CHG_BASIC
+		if (chip->project_index == SODA_PROJECT ||
+			chip->project_index == RUM_PROJECT) {
+			vote(chip->pl_disable_votable, PL_SMB_EN_VOTER, false, 0);
+			pr_err("USB removed: remove all stale votes\n");
+		}
+#endif
 		chip->override_main_fcc_ua = 0;
 		chip->total_fcc_ua = 0;
 		chip->slave_fcc_ua = 0;
@@ -1976,6 +2041,10 @@ int qcom_batt_init(struct charger_param *chg_param)
 {
 	struct pl_data *chip;
 	int rc = 0;
+#ifdef OPLUS_FEATURE_CHG_BASIC
+	u32 temp;
+	struct device_node *np;
+#endif
 
 	if (!chg_param) {
 		pr_err("invalid charger parameter\n");
@@ -1991,10 +2060,33 @@ int qcom_batt_init(struct charger_param *chg_param)
 	chip = kzalloc(sizeof(*chip), GFP_KERNEL);
 	if (!chip)
 		return -ENOMEM;
-
+#ifdef OPLUS_FEATURE_CHG_BASIC
+	chip->project_index = INVALID_PROJECT;
+	np = of_find_compatible_node(NULL, NULL, "qcom,qpnp-qg");
+	if (!np)
+		pr_err("get qpnp-qg device node fail\n");
+	else {
+		rc = of_property_read_u32(np, "qcom,project-index", &temp);
+		if (rc < 0)
+			chip->project_index= INVALID_PROJECT;
+		else
+			chip->project_index= temp;
+		pr_err("project-index = %d\n", chip->project_index);
+	}
+#endif
 	qcom_batt_create_debugfs(chip);
 
+#ifdef OPLUS_FEATURE_CHG_BASIC
+	if (chip->project_index == SODA_PROJECT) {
+		chip->slave_pct = 70;
+	} else if (chip->project_index == RUM_PROJECT) {
+		chip->slave_pct = 70;
+	} else {
+		chip->slave_pct = 50;
+	}
+#else
 	chip->slave_pct = 50;
+#endif
 	chip->chg_param = chg_param;
 	pl_config_init(chip, chg_param->smb_version);
 	chip->restricted_current = DEFAULT_RESTRICTED_CURRENT_UA;

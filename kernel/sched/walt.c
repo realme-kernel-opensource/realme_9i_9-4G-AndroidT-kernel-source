@@ -13,7 +13,14 @@
 #include "walt.h"
 
 #include <trace/events/sched.h>
-
+#ifdef OPLUS_FEATURE_SCHED_ASSIST
+#include <linux/sched.h>
+#include <linux/sched_assist/sched_assist_common.h>
+#include <linux/sched_assist/sched_assist_slide.h>
+extern u64 ux_task_load[];
+extern u64 ux_load_ts[];
+#define UX_LOAD_WINDOW 8000000
+#endif /* OPLUS_FEATURE_SCHED_ASSIST */
 const char *task_event_names[] = {"PUT_PREV_TASK", "PICK_NEXT_TASK",
 				  "TASK_WAKE", "TASK_MIGRATE", "TASK_UPDATE",
 				"IRQ_UPDATE"};
@@ -416,10 +423,10 @@ void clear_walt_request(int cpu)
 
 		raw_spin_lock_irqsave(&rq->lock, flags);
 		if (rq->push_task) {
-			clear_reserved(rq->push_cpu);
 			push_task = rq->push_task;
 			rq->push_task = NULL;
 		}
+		clear_reserved(rq->push_cpu);
 		rq->active_balance = 0;
 		raw_spin_unlock_irqrestore(&rq->lock, flags);
 		if (push_task)
@@ -515,7 +522,11 @@ static inline u64 freq_policy_load(struct rq *rq)
 	u64 aggr_grp_load = cluster->aggr_grp_load;
 	u64 load, tt_load = 0;
 	struct task_struct *cpu_ksoftirqd = per_cpu(ksoftirqd, cpu_of(rq));
-
+#ifdef OPLUS_FEATURE_SCHED_ASSIST
+	u64 wallclock = sched_ktime_clock();
+	u64 timeline = 0;
+	int cpu = cpu_of(rq);
+#endif /* OPLUS_FEATURE_SCHED_ASSIST */
 	if (rq->ed_task != NULL) {
 		load = sched_ravg_window;
 		goto done;
@@ -550,7 +561,14 @@ static inline u64 freq_policy_load(struct rq *rq)
 			load = div64_u64(load * sysctl_sched_user_hint,
 					 (u64)100);
 	}
-
+#ifdef OPLUS_FEATURE_SCHED_ASSIST
+	if (slide_scene() && ux_load_ts[cpu]) {
+		timeline = wallclock - ux_load_ts[cpu];
+		if  (timeline >= UX_LOAD_WINDOW)
+			ux_task_load[cpu] = 0;
+		load = max_t(u64, load, ux_task_load[cpu]);
+	}
+#endif /* OPLUS_FEATURE_SCHED_ASSIST */
 done:
 	trace_sched_load_to_gov(rq, aggr_grp_load, tt_load, sched_freq_aggr_en,
 				load, reporting_policy, walt_rotation_enabled,
@@ -1880,6 +1898,10 @@ static void update_history(struct rq *rq, struct task_struct *p,
 			p->unfilter = max_t(int, 0,
 				p->unfilter - p->ravg.last_win_size);
 done:
+#if defined(OPLUS_FEATURE_SCHED_ASSIST) && defined(CONFIG_OPLUS_FEATURE_SCHED_SPREAD)
+	if (p == rq->curr && p == current && event != PUT_PREV_TASK && p->sched_class == &fair_sched_class && p->ld_flag)
+		update_load_flag(p, rq);
+#endif
 	trace_sched_update_history(rq, p, runtime, samples, event);
 }
 

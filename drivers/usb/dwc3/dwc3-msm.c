@@ -47,6 +47,7 @@
 #include "debug.h"
 #include "xhci.h"
 
+
 #define SDP_CONNETION_CHECK_TIME 10000 /* in ms */
 #define EXTCON_SYNC_EVENT_TIMEOUT_MS 1500 /* in ms */
 
@@ -3290,8 +3291,11 @@ static int dwc3_msm_id_notifier(struct notifier_block *nb,
 	struct dwc3_msm *mdwc = enb->mdwc;
 	enum dwc3_id_state id;
 
+	dev_err(mdwc->dev, "[%s %d]\n", __func__, __LINE__);
+
 	if (!edev || !mdwc)
 		return NOTIFY_DONE;
+	dev_err(mdwc->dev, "[%s %d]\n", __func__, __LINE__);
 
 	dwc = platform_get_drvdata(mdwc->dwc3);
 
@@ -3301,6 +3305,7 @@ static int dwc3_msm_id_notifier(struct notifier_block *nb,
 
 	if (mdwc->id_state == id)
 		return NOTIFY_DONE;
+	dev_err(mdwc->dev, "[%s %d]\n", __func__, __LINE__);
 
 	mdwc->ext_idx = enb->idx;
 
@@ -3350,9 +3355,11 @@ static int dwc3_msm_vbus_notifier(struct notifier_block *nb,
 	struct dwc3_msm *mdwc = enb->mdwc;
 	char *eud_str;
 	const char *edev_name;
+	dev_err(mdwc->dev, "[%s %d]\n", __func__, __LINE__);
 
 	if (!edev || !mdwc)
 		return NOTIFY_DONE;
+	dev_err(mdwc->dev, "[%s %d]\n", __func__, __LINE__);
 
 	dwc = platform_get_drvdata(mdwc->dwc3);
 
@@ -3360,19 +3367,23 @@ static int dwc3_msm_vbus_notifier(struct notifier_block *nb,
 	dev_dbg(mdwc->dev, "vbus:%ld event received\n", event);
 	edev_name = extcon_get_edev_name(edev);
 	dbg_log_string("edev:%s\n", edev_name);
+	dev_err(mdwc->dev, "[%s %d]\n", __func__, __LINE__);
 
 	/* detect USB spoof disconnect/connect notification with EUD device */
 	eud_str = strnstr(edev_name, "eud", strlen(edev_name));
 	if (eud_str) {
+		dev_err(mdwc->dev, "[%s %d]\n", __func__, __LINE__);		
 		if (mdwc->eud_active == event)
 			return NOTIFY_DONE;
 		mdwc->eud_active = event;
 		mdwc->check_eud_state = true;
 	} else {
+		dev_err(mdwc->dev, "[%s %d]\n", __func__, __LINE__);		
 		if (mdwc->vbus_active == event)
 			return NOTIFY_DONE;
 		mdwc->vbus_active = event;
 	}
+	dev_err(mdwc->dev, "[%s %d]\n", __func__, __LINE__);
 
 	/*
 	 * Drive a pulse on DP to ensure proper CDP detection
@@ -3386,6 +3397,7 @@ static int dwc3_msm_vbus_notifier(struct notifier_block *nb,
 
 	if (dwc3_is_otg_or_drd(dwc) && !mdwc->in_restart)
 		queue_work(mdwc->dwc3_wq, &mdwc->resume_work);
+	dev_err(mdwc->dev, "[%s %d]\n", __func__, __LINE__);
 
 	return NOTIFY_DONE;
 }
@@ -4588,7 +4600,12 @@ static int dwc3_msm_gadget_vbus_draw(struct dwc3_msm *mdwc, unsigned int mA)
 
 	if (mdwc->max_power == mA || psy_type != POWER_SUPPLY_TYPE_USB)
 		return 0;
-
+#ifdef OPLUS_FEATURE_CHG_BASIC
+	dev_info(mdwc->dev, "Avail curr from USB = %u, pre max_power = %u\n", mA, mdwc->max_power);
+	if (mA == 0 || mA == 2) {
+		return 0;
+	}
+#endif
 	/* Set max current limit in uA */
 	pval.intval = 1000 * mA;
 

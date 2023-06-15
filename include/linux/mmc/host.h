@@ -213,7 +213,9 @@ struct mmc_host_ops {
 	unsigned long (*get_max_frequency)(struct mmc_host *host);
 	unsigned long (*get_min_frequency)(struct mmc_host *host);
 	int	(*notify_load)(struct mmc_host *host, enum mmc_load);
-
+#ifdef CONFIG_MMC_PASSWORDS
+	int	(*sd_lock_reset)(struct mmc_host *host);
+#endif
 	void	(*notify_halt)(struct mmc_host *mmc, bool halt);
 	void	(*force_err_irq)(struct mmc_host *host, u64 errmask);
 };
@@ -541,6 +543,16 @@ struct mmc_host {
 	bool			trigger_card_event; /* card_event necessary */
 
 	struct mmc_card		*card;		/* device attached to this host */
+/* #ifdef CONFIG_MMC_SDHCI_BH201 */
+	/* add for degrade code at 2019/8/30 start */
+	bool			redriver_en;    /* sd redriver enable flag */
+	u8			v18_disable;    /* flag used for degrde to sd2.0 */
+	u8			legacy_mode;    /* flag used to keep sd2.0 mode */
+	u8			card_removed_flag; /* flag used for recovery from degrade mode after insert card */
+	u8			degrade;
+	u8			degrade_count;
+	unsigned int		cur_sd_bus_speed;
+/* #endif CONFIG_MMC_SDHCI_BH201 */
 
 	wait_queue_head_t	wq;
 	struct mmc_ctx		*claimer;	/* context that has host claimed */
@@ -549,6 +561,9 @@ struct mmc_host {
 
 	struct delayed_work	detect;
 	int			detect_change;	/* card detect flag */
+#ifdef OPLUS_FEATURE_EMMC_SDCARD_OPTIMIZE
+	int detect_change_retry;
+#endif /* OPLUS_FEATURE_EMMC_SDCARD_OPTIMIZE */
 	struct mmc_slot		slot;
 
 	const struct mmc_bus_ops *bus_ops;	/* current bus driver */
@@ -564,6 +579,10 @@ struct mmc_host {
 	struct delayed_work	sdio_irq_work;
 	bool			sdio_irq_pending;
 	atomic_t		sdio_irq_thread_abort;
+
+#ifdef OPLUS_FEATURE_EMMC_SDCARD_COMPATIBLE
+	bool			card_stuck_in_programing_status;
+#endif
 
 	mmc_pm_flag_t		pm_flags;	/* requested pm features */
 
@@ -633,6 +652,7 @@ struct mmc_host {
 
 	bool crash_on_err;	/* crash the system on error */
 	bool need_hw_reset;
+	bool power_before_card;
 	atomic_t active_reqs;
 	unsigned long		private[0] ____cacheline_aligned;
 };

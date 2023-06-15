@@ -1061,6 +1061,12 @@ int mipi_dsi_dcs_set_display_brightness(struct mipi_dsi_device *dsi,
 	u8 payload[2] = { brightness & 0xff, brightness >> 8 };
 	ssize_t err;
 
+//#ifdef OPLUS_BUG_STABILITY
+	payload[0] = brightness >> 8;
+	payload[1] = brightness & 0xff;
+	//printk("[lcm] brightness_high is 0x%x, brightness_low is 0x%x, brightness is %d\n", payload[0], payload[1], brightness);
+//#endif
+
 	err = mipi_dsi_dcs_write(dsi, MIPI_DCS_SET_DISPLAY_BRIGHTNESS,
 				 payload, sizeof(payload));
 	if (err < 0)

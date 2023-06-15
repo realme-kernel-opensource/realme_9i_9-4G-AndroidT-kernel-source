@@ -818,5 +818,5 @@ config LEDS_QPNP_VIBRATOR
 
 comment "LED Triggers"
 source "drivers/leds/trigger/Kconfig"
-
+source "drivers/leds/aw2023/Kconfig"
 endif # NEW_LEDS

@@ -44,6 +44,12 @@
 #define N_REG			0xc
 #define D_REG			0x10
 
+#ifdef OPLUS_FEATURE_CAMERA_COMMON
+#define RCG_M_OFFSET(rcg)	((rcg)->cmd_rcgr + (rcg)->cfg_off + M_REG)
+#define RCG_N_OFFSET(rcg)	((rcg)->cmd_rcgr + (rcg)->cfg_off + N_REG)
+#define RCG_D_OFFSET(rcg)	((rcg)->cmd_rcgr + (rcg)->cfg_off + D_REG)
+#endif
+
 /* Dynamic Frequency Scaling */
 #define MAX_PERF_LEVEL		8
 #define SE_CMD_DFSR_OFFSET	0x14
@@ -481,12 +487,28 @@ static bool clk_rcg2_current_config(struct clk_rcg2 *rcg,
 	if (rcg->mnd_width) {
 		mask = BIT(rcg->mnd_width) - 1;
 		regmap_read(rcg->clkr.regmap, rcg->cmd_rcgr + M_REG, &cfg);
+#ifdef OPLUS_BUG_STABILITY
+/* sunshiyue, 2020/05/12, add for fixing flashing */
+		if (!cfg && (f->m == f->n))
+			return true;
+		else if ((cfg & mask) != (f->m & mask))
+			return false;
+#else
 		if ((cfg & mask) != (f->m & mask))
 			return false;
+#endif
 
 		regmap_read(rcg->clkr.regmap, rcg->cmd_rcgr + N_REG, &cfg);
+#ifdef OPLUS_BUG_STABILITY
+/* sunshiyue, 2020/05/12, add for fixing flashing */
+		if (!cfg && (f->m == f->n))
+			return true;
+		else if ((cfg & mask) != (~(f->n - f->m) & mask))
+			return false;
+#else
 		if ((cfg & mask) != (~(f->n - f->m) & mask))
 			return false;
+#endif
 	}
 
 	mask = (BIT(rcg->hid_width) - 1) | CFG_SRC_SEL_MASK;
@@ -800,6 +822,59 @@ static void clk_rcg2_disable(struct clk_hw *hw)
 	clk_rcg2_clear_force_enable(hw);
 }
 
+#ifdef OPLUS_FEATURE_CAMERA_COMMON
+static int clk_rcg2_set_duty_cycle(struct clk_hw *hw, struct clk_duty *duty)
+{
+	struct clk_rcg2 *rcg = to_clk_rcg2(hw);
+	int ret;
+	u32 notn_m_val;
+	u32 n_val;
+	u32 m_val;
+	u32 d_val;
+	u32 not2d_val;
+	u32 mask;
+	u32 old_cfg;
+	u32 duty_per;
+
+	if (!duty->den) {
+		return 0;
+	} else {
+		duty_per = (duty->num * 100) / duty->den;
+	}
+	if (!rcg->mnd_width)
+		return 0;
+
+	mask = BIT(rcg->mnd_width) - 1;
+
+	regmap_read(rcg->clkr.regmap, RCG_N_OFFSET(rcg), &notn_m_val);
+	regmap_read(rcg->clkr.regmap, RCG_M_OFFSET(rcg), &m_val);
+	/* Read back the old configuration */
+	regmap_read(rcg->clkr.regmap, rcg->cmd_rcgr + CFG_REG, &old_cfg);
+
+	n_val = (~(notn_m_val) + m_val) & mask;
+
+	/* Calculate 2d value */
+	d_val = DIV_ROUND_CLOSEST(n_val * duty_per * 2, 100);
+
+	/* Check BIT WIDTHS OF 2d. If D is too big reduce Duty cycle. */
+	if (d_val > mask)
+		d_val = mask;
+
+	if ((d_val >> 1) > (n_val - m_val))
+		d_val = (n_val - m_val) * 2;
+	else if ((d_val >> 1) < (m_val >> 1))
+		d_val = m_val;
+
+	not2d_val = ~d_val & mask;
+
+	ret = regmap_update_bits(rcg->clkr.regmap, RCG_D_OFFSET(rcg), mask, not2d_val);
+	if (ret)
+		return ret;
+
+	return update_config(rcg, old_cfg);
+}
+#endif
+
 const struct clk_ops clk_rcg2_ops = {
 	.is_enabled = clk_rcg2_is_enabled,
 	.enable = clk_rcg2_enable,
@@ -810,6 +885,9 @@ const struct clk_ops clk_rcg2_ops = {
 	.determine_rate = clk_rcg2_determine_rate,
 	.set_rate = clk_rcg2_set_rate,
 	.set_rate_and_parent = clk_rcg2_set_rate_and_parent,
+#ifdef OPLUS_FEATURE_CAMERA_COMMON
+	.set_duty_cycle = clk_rcg2_set_duty_cycle,
+#endif
 	.list_rate = clk_rcg2_list_rate,
 	.list_registers = clk_rcg2_list_registers,
 	.bus_vote = clk_debug_bus_vote,
@@ -1165,8 +1243,17 @@ static int clk_pixel_set_rate(struct clk_hw *hw, unsigned long rate,
 		f.m = frac->num;
 		f.n = frac->den;
 
+#ifdef OPLUS_BUG_STABILITY
+/* sunshiyue, 2020/05/12, add for fixing flashing */
+		if (clk_rcg2_current_config(rcg, &f)) {
+			pr_err("clk_rcg2_current_config check\n");
+			return 0;
+		}
+		pr_err("clk_rcg2_configure called\n");
+#else
 		if (clk_rcg2_current_config(rcg, &f))
 			return 0;
+#endif
 		return clk_rcg2_configure(rcg, &f);
 	}
 	return -EINVAL;

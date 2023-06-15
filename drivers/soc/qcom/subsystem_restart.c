@@ -35,11 +35,17 @@
 #include <linux/timer.h>
 
 #include "peripheral-loader.h"
+#ifdef OPLUS_BUG_STABILITY
+/*Add for disable dump for subsys crash*/
+#include <soc/oplus/oplus_project.h>
+#endif
 
 #define DISABLE_SSR 0x9889deed
 /* If set to 0x9889deed, call to subsystem_restart_dev() returns immediately */
 static uint disable_restart_work;
 module_param(disable_restart_work, uint, 0644);
+
+static DEFINE_MUTEX(subsys_list_lock);
 
 static int enable_debug;
 module_param(enable_debug, int, 0644);
@@ -205,6 +211,39 @@ struct subsys_device {
 	struct list_head list;
 };
 
+#ifdef OPLUS_FEATURE_ADSP_RECOVERY
+static bool oplus_adsp_ssr = false;
+
+void oplus_adsp_set_ssr_state(bool state)
+{
+	if (oplus_adsp_ssr == state)
+		return;
+	oplus_adsp_ssr = state;
+	pr_err("set oplus_adsp_ssr=%d\n", oplus_adsp_ssr);
+}
+EXPORT_SYMBOL(oplus_adsp_set_ssr_state);
+
+bool oplus_adsp_get_ssr_state(void)
+{
+	pr_err("get oplus_adsp_ssr=%d\n", oplus_adsp_ssr);
+	return oplus_adsp_ssr;
+}
+EXPORT_SYMBOL(oplus_adsp_get_ssr_state);
+
+int oplus_adsp_get_restart_level(const char *name)
+{
+	struct subsys_device *dev = find_subsys_device(name);
+
+	if (!dev) {
+		pr_err("can not find subsys dev for '%s'\n", name?name:"unknown");
+		return -1;
+	}
+
+	return dev->restart_level;
+}
+EXPORT_SYMBOL(oplus_adsp_get_restart_level);
+#endif /* OPLUS_FEATURE_ADSP_RECOVERY */
+
 static struct subsys_device *to_subsys(struct device *d)
 {
 	return container_of(d, struct subsys_device, dev);
@@ -344,6 +383,38 @@ static ssize_t system_debug_store(struct device *dev,
 }
 static DEVICE_ATTR_RW(system_debug);
 
+#define CRASH_CAUSE_BUF_LEN 128
+char crash_case_buf[CRASH_CAUSE_BUF_LEN] = {0};
+
+void set_subsys_crash_cause(char *str)
+{
+	int len = 0;
+	len = strlen(str);
+	if(len >= CRASH_CAUSE_BUF_LEN)
+		len = CRASH_CAUSE_BUF_LEN -1;
+	memcpy(crash_case_buf, str, len);
+	crash_case_buf[len] = '\0';
+}
+EXPORT_SYMBOL(set_subsys_crash_cause);
+
+static ssize_t crash_cause_show(struct device *dev,
+				struct device_attribute *attr, char *buf)
+{
+	int ret = 0;
+	mutex_lock(&subsys_list_lock);
+	ret = snprintf(buf, PAGE_SIZE, "%s\n", crash_case_buf);
+	mutex_unlock(&subsys_list_lock);
+	return ret;
+}
+
+static ssize_t crash_cause_store(struct device *dev,
+				struct device_attribute *attr, const char *buf,
+				size_t count)
+{
+	return count;
+}
+static DEVICE_ATTR_RW(crash_cause);
+
 int subsys_get_restart_level(struct subsys_device *dev)
 {
 	return dev->restart_level;
@@ -386,6 +457,7 @@ static struct attribute *subsys_attrs[] = {
 	&dev_attr_restart_level.attr,
 	&dev_attr_firmware_name.attr,
 	&dev_attr_system_debug.attr,
+        &dev_attr_crash_cause.attr,
 	NULL,
 };
 
@@ -413,7 +485,7 @@ static LIST_HEAD(subsys_list);
 static LIST_HEAD(ssr_order_list);
 static DEFINE_MUTEX(soc_order_reg_lock);
 static DEFINE_MUTEX(restart_log_mutex);
-static DEFINE_MUTEX(subsys_list_lock);
+/*static DEFINE_MUTEX(subsys_list_lock);*/
 static DEFINE_MUTEX(char_device_lock);
 static DEFINE_MUTEX(ssr_order_mutex);
 
@@ -1209,6 +1281,64 @@ static void device_restart_work_hdlr(struct work_struct *work)
 							dev->desc->name);
 }
 
+#ifdef OPLUS_FEATURE_MODEM_MINIDUMP
+unsigned int getBKDRHash(char *str, unsigned int len)
+{
+	unsigned int seed = 131; /* 31 131 1313 13131 131313 etc.. */
+	unsigned int hash = 0;
+	unsigned int i    = 0;
+	if (str == NULL) {
+		return 0;
+	}
+	for(i = 0; i < len; str++, i++) {
+		hash = (hash * seed) + (*str);
+	}
+	return hash;
+}
+EXPORT_SYMBOL(getBKDRHash);
+void __subsystem_send_uevent(struct device *dev, char *reason)
+{
+	int ret_val;
+	char modem_event[] = "MODEM_EVENT=modem_failure";
+	char modem_reason[300] = {0};
+    char modem_hashreason[MAX_REASON_LEN] = {0};
+	char *envp[4];
+    unsigned int hashid = 0;
+
+	envp[0] = (char *)&modem_event;
+	if(reason){
+		snprintf(modem_reason, sizeof(modem_reason),"MODEM_REASON=%s", reason);
+	}else{
+	    snprintf(modem_reason, sizeof(modem_reason),"MODEM_REASON=unkown");
+	}
+	modem_reason[299] = 0;
+	envp[1] = (char *)&modem_reason;
+    hashid = getBKDRHash(reason, strlen(reason));
+	snprintf(modem_hashreason, sizeof(modem_hashreason), "MODEM_HASH_REASON=fid:%u;cause:%s", hashid, reason);
+	modem_hashreason[MAX_REASON_LEN - 1] = 0;
+	pr_info("__subsystem_send_uevent: modem_hashreason: %s\n", modem_hashreason);
+	envp[2] = (char *)&modem_hashreason;
+	envp[3] = 0;
+
+	if(dev){
+		ret_val = kobject_uevent_env(&(dev->kobj), KOBJ_CHANGE, envp);
+		if(!ret_val){
+			pr_info("modem crash:kobject_uevent_env success!\n");
+		}else{
+			pr_info("modem crash:kobject_uevent_env fail,error=%d!\n", ret_val);
+		}
+    }
+}
+EXPORT_SYMBOL(__subsystem_send_uevent);
+
+void subsystem_send_uevent(struct subsys_device *dev, char *reason)
+{
+	__subsystem_send_uevent(&(dev->dev), reason);
+	return;
+}
+EXPORT_SYMBOL(subsystem_send_uevent);
+#endif /*OPLUS_FEATURE_MODEM_MINIDUMP*/
+
 int subsystem_restart_dev(struct subsys_device *dev)
 {
 	const char *name;
@@ -1222,6 +1352,19 @@ int subsystem_restart_dev(struct subsys_device *dev)
 	}
 
 	name = dev->desc->name;
+
+	#ifdef OPLUS_FEATURE_ADSP_RECOVERY
+	if (name && !strcmp(name, "adsp")) {
+		pr_err("adsp subsystem restart.\n");
+		if (oplus_adsp_get_ssr_state()) {
+			pr_err("adsp restarting, Ignoring request\n");
+			return 0;
+		} else {
+			pr_err("set adsp restart state\n");
+			oplus_adsp_set_ssr_state(true);
+		}
+	}
+	#endif /* OPLUS_FEATURE_ADSP_RECOVERY */
 
 	send_early_notifications(dev->early_notify);
 
@@ -1821,6 +1964,10 @@ struct subsys_device *subsys_register(struct subsys_desc *desc)
 	subsys->dev.bus = &subsys_bus_type;
 	subsys->dev.release = subsys_device_release;
 	subsys->notif_state = -1;
+#ifdef OPLUS_BUG_STABILITY
+	if(!oplus_daily_build() && !(get_eng_version() == AGING))
+		subsys->restart_level = RESET_SUBSYS_COUPLED;
+#endif /*OPLUS_BUG_STABILITY */
 	subsys->desc->sysmon_pid = -1;
 	subsys->desc->state = NULL;
 	strlcpy(subsys->desc->fw_name, desc->name,

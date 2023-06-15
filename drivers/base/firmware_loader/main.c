@@ -307,6 +307,7 @@ fw_get_filesystem_firmware(struct device *device, struct fw_priv *fw_priv)
 	enum kernel_read_file_id id = READING_FIRMWARE;
 	size_t msize = INT_MAX;
 
+
 	/* Already populated data member means we're loading into a buffer */
 	if (fw_priv->data) {
 		id = READING_FIRMWARE_PREALLOC_BUFFER;
@@ -644,6 +645,7 @@ request_firmware(const struct firmware **firmware_p, const char *name,
 	return ret;
 }
 EXPORT_SYMBOL(request_firmware);
+
 
 /**
  * firmware_request_nowarn() - request for an optional fw module

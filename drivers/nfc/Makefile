@@ -18,3 +18,9 @@ obj-$(CONFIG_NFC_NXP_NCI)	+= nxp-nci/
 obj-$(CONFIG_NFC_S3FWRN5)	+= s3fwrn5/
 obj-$(CONFIG_NFC_ST95HF)	+= st95hf/
 obj-$(CONFIG_NFC_NQ)            += nq-nci.o
+##ifdef OPLUS_FEATURE_BRINGUP
+$(warning "CONFIG_OPLUS_NFC = " $(CONFIG_OPLUS_NFC))
+$(warning "CONFIG_NFC_PN553_DEVICES = " $(CONFIG_NFC_PN553_DEVICES))
+obj-$(CONFIG_NFC_PN553_DEVICES)		+= pn553-i2c/
+obj-$(CONFIG_OPLUS_NFC)             += oplus_nfc/
+##endif /* OPLUS_FEATURE_NFC_BRINGUP */

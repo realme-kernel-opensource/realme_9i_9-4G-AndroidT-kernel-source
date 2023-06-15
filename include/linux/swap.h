@@ -14,6 +14,11 @@
 #include <linux/page-flags.h>
 #include <asm/page.h>
 
+#if defined(CONFIG_NANDSWAP)
+#include <../drivers/soc/oplus/oplus_nandswap/nandswap.h>
+#define SWAP_NANDSWAP_PRIO	2020	/* just a magic number */
+#endif
+
 struct notifier_block;
 
 struct bio;
@@ -173,7 +178,12 @@ enum {
 	SWP_STABLE_WRITES = (1 << 10),	/* no overwrite PG_writeback pages */
 	SWP_SYNCHRONOUS_IO = (1 << 11),	/* synchronous IO is efficient */
 					/* add others here before... */
+#if defined(CONFIG_NANDSWAP)
+	SWP_NANDSWAP	= (1 << 12),	/* mark the device used for nandswap */
+	SWP_SCANNING	= (1 << 13),	/* refcount in scan_swap_map */
+#else
 	SWP_SCANNING	= (1 << 12),	/* refcount in scan_swap_map */
+#endif
 };
 
 #define SWAP_CLUSTER_MAX 32UL
@@ -377,7 +387,12 @@ extern int sysctl_swap_ratio;
 extern int sysctl_swap_ratio_enable;
 extern int remove_mapping(struct address_space *mapping, struct page *page);
 extern unsigned long vm_total_pages;
-
+#ifdef CONFIG_DYNAMIC_TUNNING_SWAPPINESS
+extern int vm_swappiness_threshold1;
+extern int vm_swappiness_threshold2;
+extern int swappiness_threshold1_size;
+extern int swappiness_threshold2_size;
+#endif
 #ifdef CONFIG_NUMA
 extern int node_reclaim_mode;
 extern int sysctl_min_unmapped_ratio;

@@ -160,11 +160,14 @@ void percpu_down_write(struct percpu_rw_semaphore *sem)
 
 	/* Wait for all now active readers to complete. */
 	rcuwait_wait_event(&sem->writer, readers_active_check(sem));
+	current->locking_time_start = jiffies;
 }
 EXPORT_SYMBOL_GPL(percpu_down_write);
 
 void percpu_up_write(struct percpu_rw_semaphore *sem)
 {
+	current->locking_time_start = 0;
+
 	/*
 	 * Signal the writer is done, no fast path yet.
 	 *

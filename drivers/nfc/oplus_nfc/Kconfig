@@ -1,0 +1,4 @@
+config OPLUS_NFC
+    tristate  "config oplus nfc chipset"
+        help
+        define this config to get chipset version from dts.

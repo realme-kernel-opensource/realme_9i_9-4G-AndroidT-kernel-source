@@ -570,9 +570,17 @@ static void msm_gpio_dbg_show(struct seq_file *s, struct gpio_chip *chip)
 {
 	unsigned gpio = chip->base;
 	unsigned i;
-
-	for (i = 0; i < chip->ngpio; i++, gpio++)
-		msm_gpio_dbg_show_one(s, NULL, chip, i, gpio);
+	for (i = 0; i < chip->ngpio; i++, gpio++) {
+               switch(i) {
+                   case 10:
+                   case 11:
+                   case 14 ... 17:
+                        break;
+                   default:
+		        msm_gpio_dbg_show_one(s, NULL, chip, i, gpio);
+                   break;
+                }
+       }
 }
 
 #else

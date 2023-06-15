@@ -454,6 +454,75 @@ KBUILD_LDFLAGS :=
 GCC_PLUGINS_CFLAGS :=
 CLANG_FLAGS :=
 
+# ifdef VENDOR_EDIT
+KBUILD_CFLAGS +=   -DVENDOR_EDIT
+KBUILD_CPPFLAGS += -DVENDOR_EDIT
+CFLAGS_KERNEL +=   -DVENDOR_EDIT
+CFLAGS_MODULE +=   -DVENDOR_EDIT
+#endif /* VENDOR_EDIT */
+#ifdef VENDOR_EDIT
+-include OplusKernelEnvConfig.mk
+#endif // COLOROS_EDIT
+
+ifneq (,$(findstring Aging,$(SPECIAL_VERSION)))
+OPLUS_F2FS_DEBUG := true
+endif
+
+export OPLUS_F2FS_DEBUG
+
+#ifdef OPLUS_BUG_STABILITY
+ifeq ($(AGING_DEBUG_MASK),1)
+#Agingtest enable rtb
+OPLUS_AGING_TEST := true
+endif
+
+ifeq ($(AGING_DEBUG_MASK),2)
+#enable rtb
+OPLUS_AGING_TEST := true
+#enable kasan
+OPLUS_KASAN_TEST := true
+endif
+$(warning OPLUS_KASAN_TEST is $(OPLUS_KASAN_TEST))
+
+ifeq ($(AGING_DEBUG_MASK),3)
+#enable rtb
+OPLUS_AGING_TEST := true
+#enable kasan
+OPLUS_KMEMLEAK_TEST := true
+endif
+
+ifeq ($(AGING_DEBUG_MASK),4)
+#enable rtb
+OPLUS_AGING_TEST := true
+#enable kasan
+OPLUS_SLUB_TEST := true
+endif
+
+ifeq ($(AGING_DEBUG_MASK),5)
+#enable rtb
+OPLUS_AGING_TEST := true
+#enable kasan
+OPLUS_PAGEOWNER_TEST := true
+endif
+
+ifeq ($(AGING_DEBUG_MASK),6)
+#enable rtb
+OPLUS_AGING_TEST := true
+#enable slub debug and pageowner 
+OPLUS_PAGEOWNER_TEST := true
+OPLUS_SLUB_TEST := true
+endif
+
+ifeq ($(AGING_DEBUG_MASK),7)
+#enable rtb
+OPLUS_AGING_TEST := true
+#enable slub debug and pageowner 
+OPLUS_KASAN_TEST := true
+OPLUS_SLUB_TEST := true
+endif
+
+export OPLUS_AGING_TEST OPLUS_KASAN_TEST OPLUS_KMEMLEAK_TEST OPLUS_SLUB_TEST OPLUS_PAGEOWNER_TEST
+#endif
 export ARCH SRCARCH CONFIG_SHELL HOSTCC KBUILD_HOSTCFLAGS CROSS_COMPILE LD CC
 export CPP AR NM STRIP OBJCOPY OBJDUMP OBJSIZE READELF KBUILD_HOSTLDFLAGS KBUILD_HOSTLDLIBS
 export MAKE LEX YACC AWK GENKSYMS INSTALLKERNEL PERL PYTHON PYTHON2 PYTHON3 UTS_MACHINE
@@ -1044,6 +1113,10 @@ export INSTALL_DTBS_PATH ?= $(INSTALL_PATH)/dtbs/$(KERNELRELEASE)
 
 MODLIB	= $(INSTALL_MOD_PATH)/lib/modules/$(KERNELRELEASE)
 export MODLIB
+
+#ifdef OPLUS_FEATURE_CHG_BASIC
+KBUILD_CFLAGS += -DOPLUS_FEATURE_CHG_BASIC
+#endif
 
 #
 # INSTALL_MOD_STRIP, if defined, will cause modules to be

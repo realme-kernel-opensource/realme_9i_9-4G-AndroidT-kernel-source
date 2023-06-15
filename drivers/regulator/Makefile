@@ -145,5 +145,7 @@ obj-$(CONFIG_REGULATOR_REFGEN) += refgen.o
 obj-$(CONFIG_REGULATOR_SPM) += spm-regulator.o
 obj-$(CONFIG_REGULATOR_RPMH) += rpmh-regulator.o
 obj-$(CONFIG_REGULATOR_STUB) += stub-regulator.o
+obj-y +=  fan53870.o
+obj-$(CONFIG_REGULATOR_OPLUS_WL2868C) +=  oplus_camera_wl2868c.o
 
 ccflags-$(CONFIG_REGULATOR_DEBUG) += -DDEBUG

@@ -156,6 +156,7 @@ struct clk_rcg2 {
 	unsigned long		current_freq;
 	bool			enable_safe_config;
 	struct clk_regmap	clkr;
+	u8			cfg_off;
 	u8			flags;
 #define FORCE_ENABLE_RCG	BIT(0)
 #define HW_CLK_CTRL_MODE	BIT(1)

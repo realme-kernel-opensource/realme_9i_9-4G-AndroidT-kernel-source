@@ -47,6 +47,12 @@ static struct workqueue_struct *cpu_boost_wq;
 
 static struct work_struct input_boost_work;
 
+#ifdef OPLUS_FEATURE_CHG_BASIC
+int cb_cpu = -1;
+unsigned int cb_freq = 0;
+static struct work_struct charge_boost_work;
+static struct work_struct charge_boost_rem;
+#endif /*OPLUS_FEATURE_CHG_BASIC*/
 static bool input_boost_enabled;
 
 static unsigned int input_boost_ms = 40;
@@ -144,6 +150,15 @@ static int boost_adjust_notify(struct notifier_block *nb, unsigned long val,
 	struct cpu_sync *s = &per_cpu(sync_info, cpu);
 	unsigned int ib_min = s->input_boost_min;
 
+#ifdef OPLUS_FEATURE_CHG_BASIC
+	if (((int)cpu) == cb_cpu) {
+		ib_min = max(ib_min, cb_freq);
+		//pr_err("chg adjust cpufreq: [%d, %d]\n", ib_min, cb_freq);
+	}
+	if (cb_cpu == -1) {
+		//pr_err("recover auto freq: [%d, %d]\n", ib_min, cb_freq);
+	}
+#endif /*OPLUS_FEATURE_CHG_BASIC*/
 	switch (val) {
 	case CPUFREQ_ADJUST:
 		if (!ib_min)
@@ -327,6 +342,52 @@ static struct input_handler cpuboost_input_handler = {
 	.id_table       = cpuboost_ids,
 };
 
+
+#ifdef OPLUS_FEATURE_CHG_BASIC
+static void do_charge_boost_rem(struct work_struct *work)
+{
+	cb_cpu = -1;
+	cb_freq = 0;
+	update_policy_online();
+	//pr_err("do_charge_boost_rem\n");
+}
+
+extern int base_cpufreq_for_chg;
+extern int cpu_freq_stratehy;
+static void do_charge_boost(struct work_struct *work)
+{
+	cb_cpu = 0;    //(cluster0)
+	cb_freq = base_cpufreq_for_chg; //custom cpu freq
+	update_policy_online();
+	//pr_err("do_charge_boost cpu adjust freq %d\n", cb_freq);
+}
+
+void cpuboost_charge_event(int flag)
+{
+	//return, the same strategy of cpu freq
+	if (cpu_freq_stratehy == flag) {
+		return;
+	}
+
+	switch (flag) {
+	//irq start
+	case 1:
+		do_charge_boost(NULL);
+		cpu_freq_stratehy = flag;
+		pr_err("chg adjust cpufreq to %d Hz\n", base_cpufreq_for_chg);
+		break;
+	//irq end
+	case 0:
+		do_charge_boost_rem(NULL);
+		cpu_freq_stratehy = flag;
+		pr_err("chg adjust cpufreq to auto\n");
+		break;
+	default :
+		break;
+	}
+}
+#endif /*OPLUS_FEATURE_CHG_BASIC*/
+
 struct kobject *cpu_boost_kobj;
 static int cpu_boost_init(void)
 {
@@ -339,6 +400,11 @@ static int cpu_boost_init(void)
 
 	INIT_WORK(&input_boost_work, do_input_boost);
 	INIT_DELAYED_WORK(&input_boost_rem, do_input_boost_rem);
+
+#ifdef OPLUS_FEATURE_CHG_BASIC
+	INIT_WORK(&charge_boost_work, do_charge_boost);
+	INIT_WORK(&charge_boost_rem, do_charge_boost_rem);
+#endif /*OPLUS_FEATURE_CHG_BASIC*/
 
 	for_each_possible_cpu(cpu) {
 		s = &per_cpu(sync_info, cpu);

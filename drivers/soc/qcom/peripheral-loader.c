@@ -440,6 +440,35 @@ static void print_aux_minidump_tocs(struct pil_desc *desc)
 	}
 }
 
+#ifdef OPLUS_FEATURE_SSR
+void __adsp_send_uevent(struct device *dev, char *reason)
+{
+	int ret_val;
+	char adsp_event[] = "ADSP_EVENT=adsp_crash";
+	char adsp_reason[300] = {0};
+	char *envp[3];
+
+	envp[0] = (char *)&adsp_event;
+	if(reason){
+		snprintf(adsp_reason, sizeof(adsp_reason),"ADSP_REASON=%s", reason);
+	}else{
+		snprintf(adsp_reason, sizeof(adsp_reason),"ADSP_REASON=unkown");
+	}
+	adsp_reason[299] = 0;
+	envp[1] = (char *)&adsp_reason;
+	envp[2] = 0;
+
+	if(dev){
+		ret_val = kobject_uevent_env(&(dev->kobj), KOBJ_CHANGE, envp);
+		if(!ret_val){
+			pr_info("adsp_crash:kobject_uevent_env success!\n");
+		}else{
+			pr_info("adsp_crash:kobject_uevent_env fail,error=%d!\n", ret_val);
+		}
+	}
+}
+#endif /*OPLUS_FEATURE_SSR*/
+
 /**
  * pil_do_ramdump() - Ramdump an image
  * @desc: descriptor from pil_desc_init()
@@ -457,6 +486,15 @@ int pil_do_ramdump(struct pil_desc *desc,
 	int count = 0, ret;
 
 	if (desc->minidump_ss) {
+#ifdef OPLUS_FEATURE_MODEM_MINIDUMP
+	//Add for customized subsystem ramdump to skip generate dump cause by SAU
+	if (SKIP_GENERATE_RAMDUMP) {
+		pil_err(desc, "%s: Skip ramdump cuase by ap normal trigger.\n %s",
+			__func__, desc->name);
+		SKIP_GENERATE_RAMDUMP = false;
+		return -1;
+	}
+#endif
 		pr_debug("Minidump : md_ss_toc->md_ss_toc_init is 0x%x\n",
 			(unsigned int)desc->minidump_ss->md_ss_toc_init);
 		pr_debug("Minidump : md_ss_toc->md_ss_enable_status is 0x%x\n",
@@ -514,6 +552,8 @@ int pil_do_ramdump(struct pil_desc *desc,
 	if (ret)
 		pil_err(desc, "%s: Ramdump collection failed for subsys %s rc:%d\n",
 				__func__, desc->name, ret);
+
+
 
 	if (desc->subsys_vmid > 0)
 		ret = pil_assign_mem_to_subsys(desc, priv->region_start,

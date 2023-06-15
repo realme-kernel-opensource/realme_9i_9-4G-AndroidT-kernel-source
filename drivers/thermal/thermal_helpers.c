@@ -22,6 +22,10 @@
 
 #include "thermal_core.h"
 
+//#ifdef OPLUS_TEMP_NTC
+#include "oplus_ntcswitch_project.h"
+//#endif
+
 int get_tz_trend(struct thermal_zone_device *tz, int trip)
 {
 	enum thermal_trend trend;
@@ -80,13 +84,50 @@ int thermal_zone_get_temp(struct thermal_zone_device *tz, int *temp)
 	int count;
 	int crit_temp = INT_MAX;
 	enum thermal_trip_type type;
-
-	if (!tz || IS_ERR(tz) || !tz->ops->get_temp)
+//#ifdef OPLUS_TEMP_NTC
+	if (!tz || IS_ERR(tz) || (!is_ntcswitch_projects() && !tz->ops->get_temp)) {
 		goto exit;
 
+	}
+//#endif
 	mutex_lock(&tz->lock);
-
-	ret = tz->ops->get_temp(tz, temp);
+//#ifdef OPLUS_TEMP_NTC
+	if (is_ntcswitch_projects()) {
+		if (strcmp(tz->type, "cpu-therm-usr") == 0) {
+			*temp = oplus_thermal_tmp_get_bb();
+			ret = 0;
+		} else if (strcmp(tz->type, "quiet-therm-usr") == 0) {
+			*temp = oplus_thermal_tmp_get_board();
+			ret = 0;
+		} else if (strcmp(tz->type, "camera-therm-usr") == 0) {
+			*temp = oplus_thermal_tmp_get_flash();
+			ret = 0;
+		} else if (strcmp(tz->type, "chg-skin-therm-usr") == 0) {
+			*temp = oplus_thermal_tmp_get_chg();
+			ret = 0;
+		} else if (strcmp(tz->type, "typc-1-therm-usr") == 0) {
+			*temp = oplus_thermal_tmp_get_typc_1();
+			ret = 0;
+		} else if (strcmp(tz->type, "typc-2-therm-usr") == 0) {
+			*temp = oplus_thermal_tmp_get_typc_2();
+			ret = 0;
+		} else if (strcmp(tz->type, "fled-therm-usr") == 0) {
+			*temp = oplus_thermal_tmp_get_fled();
+			ret = 0;
+		} else if (strcmp(tz->type, "board-therm-usr") == 0) {
+			*temp = oplus_thermal_temp_get_board();
+			ret = 0;
+		} else {
+			if (!tz->ops->get_temp){
+				mutex_unlock(&tz->lock);
+				goto exit;
+			}
+			ret = tz->ops->get_temp(tz, temp);
+		}
+	} else {
+		ret = tz->ops->get_temp(tz, temp);
+	}
+//#endif
 
 	if (IS_ENABLED(CONFIG_THERMAL_EMULATION) && tz->emul_temperature) {
 		for (count = 0; count < tz->trips; count++) {

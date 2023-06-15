@@ -2747,7 +2747,15 @@ int smblib_disable_hw_jeita(struct smb_charger *chg, bool disable)
 	mask = JEITA_EN_COLD_SL_FCV_BIT
 		| JEITA_EN_HOT_SL_FCV_BIT
 		| JEITA_EN_HOT_SL_CCC_BIT
-		| JEITA_EN_COLD_SL_CCC_BIT,
+//#ifndef OPLUS_FEATURE_CHG_BASIC
+	//	| JEITA_EN_COLD_SL_CCC_BIT,
+//#else
+		| JEITA_EN_COLD_SL_CCC_BIT
+		| JEITA_EN_HARDLIMIT_BIT
+		| JEITA_EN_FVCOMP_IN_CV_BIT
+		| JEITA_EN_AFP_COLD_BIT
+		| JEITA_EN_AFP_HOT_BIT;
+//#endif
 	rc = smblib_masked_write(chg, JEITA_EN_CFG_REG, mask,
 			disable ? 0 : mask);
 	if (rc < 0) {

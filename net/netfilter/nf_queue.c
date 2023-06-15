@@ -147,6 +147,7 @@ static int __nf_queue(struct sk_buff *skb, const struct nf_hook_state *state,
 	struct nf_queue_entry *entry = NULL;
 	const struct nf_queue_handler *qh;
 	struct net *net = state->net;
+
 	unsigned int route_key_size;
 
 	/* QUEUE == DROP if no one is waiting, to be safe. */

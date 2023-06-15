@@ -3222,7 +3222,12 @@ EXPORT_SYMBOL_GPL(clk_set_flags);
 
 static struct dentry *rootdir;
 static int inited = 0;
+#if defined(OPLUS_FEATURE_POWERINFO_STANDBY_DEBUG) && defined(CONFIG_OPLUS_POWERINFO_STANDBY_DEBUG)
+/* modify for power debug */
+static u32 debug_suspend = 1;
+#else
 static u32 debug_suspend;
+#endif /* VENDOR_EDIT */
 static DEFINE_MUTEX(clk_debug_lock);
 static HLIST_HEAD(clk_debug_list);
 

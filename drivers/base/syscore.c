@@ -120,6 +120,7 @@ void syscore_shutdown(void)
 {
 	struct syscore_ops *ops;
 
+	pr_info("%s:%d: Entry\n", __func__, __LINE__);
 	mutex_lock(&syscore_ops_lock);
 
 	list_for_each_entry_reverse(ops, &syscore_ops_list, node)
@@ -130,4 +131,5 @@ void syscore_shutdown(void)
 		}
 
 	mutex_unlock(&syscore_ops_lock);
+	pr_info("%s:%d: Exit\n", __func__, __LINE__);
 }

@@ -58,6 +58,53 @@
 #include "braille.h"
 #include "internal.h"
 
+#ifdef OPLUS_FEATURE_POWERINFO_FTM
+/* Add for ftm uart control via cmdline */
+enum{
+        BOOT_MODE__NORMAL,
+        BOOT_MODE__FASTBOOT,
+        BOOT_MODE__RECOVERY,
+        BOOT_MODE__FACTORY,
+        BOOT_MODE__RF,
+        BOOT_MODE__WLAN,
+
+};
+static bool __read_mostly printk_disable_uart = true; /*set true avoid early console output */
+static int oplus_ftm_mode = BOOT_MODE__NORMAL;
+
+static int __init oplus_ftm_mode_check(char *str)
+{
+if (str) {
+		if (strncmp(str, "factory2", 5) == 0) {
+			oplus_ftm_mode = BOOT_MODE__FACTORY;
+			console_silent();
+			pr_err("kernel ftm OK\r\n");
+		} else if (strncmp(str, "ftmwifi", 5) == 0) {
+			oplus_ftm_mode = BOOT_MODE__WLAN;
+		}  else if (strncmp(str, "ftmrf", 5) == 0) {
+			oplus_ftm_mode = BOOT_MODE__RF;
+		}
+	}
+
+	return 0;
+}
+early_param("oplus_ftm_mode", oplus_ftm_mode_check);
+
+static int __init printk_uart_disabled(char *str)
+{
+	if (str[0] == '1')
+		printk_disable_uart = true;
+	else
+		printk_disable_uart = false;
+	return 0;
+}
+early_param("printk.disable_uart", printk_uart_disabled);
+bool oem_disable_uart(void)
+{
+	return printk_disable_uart;
+}
+#endif /* OPLUS_FEATURE_POWERINFO_FTM */
+
 int console_printk[4] = {
 	CONSOLE_LOGLEVEL_DEFAULT,	/* console_loglevel */
 	MESSAGE_LOGLEVEL_DEFAULT,	/* default_message_loglevel */
@@ -607,6 +654,21 @@ static int log_store(int facility, int level,
 	u32 size, pad_len;
 	u16 trunc_msg_len = 0;
 
+	#if defined(OPLUS_FEATURE_POWERINFO_STANDBY_DEBUG) && defined(CONFIG_OPLUS_POWERINFO_STANDBY_DEBUG)
+	/* modify for power debug */
+	int this_cpu = smp_processor_id();
+	char tbuf[64];
+	unsigned tlen;
+
+	if (console_suspended == 0) {
+		tlen = snprintf(tbuf, sizeof(tbuf), " (%x)[%d:%s]",
+			this_cpu, current->pid, current->comm);
+	} else {
+		tlen = snprintf(tbuf, sizeof(tbuf), " %x)", this_cpu);
+	}
+	text_len += tlen;
+	#endif
+
 	/* number of '\0' padding bytes to next message */
 	size = msg_used_size(text_len, dict_len, &pad_len);
 
@@ -631,7 +693,13 @@ static int log_store(int facility, int level,
 
 	/* fill message */
 	msg = (struct printk_log *)(log_buf + log_next_idx);
+	#if !defined(OPLUS_FEATURE_POWERINFO_STANDBY_DEBUG) && !defined(CONFIG_OPLUS_POWERINFO_STANDBY_DEBUG)
+	/* modify for power debug */
 	memcpy(log_text(msg), text, text_len);
+	#else
+	memcpy(log_text(msg), tbuf, tlen);
+	memcpy(log_text(msg) + tlen, text, text_len-tlen);
+	#endif
 	msg->text_len = text_len;
 	if (trunc_msg_len) {
 		memcpy(log_text(msg) + text_len, trunc_msg, trunc_msg_len);
@@ -1751,6 +1819,13 @@ static void call_console_drivers(const char *ext_text, size_t ext_len,
 		return;
 
 	for_each_console(con) {
+		#ifdef OPLUS_FEATURE_POWERINFO_FTM
+		/* Modify for disable uart log in ftm mode */
+		if ((con->flags & CON_CONSDEV) &&
+				(printk_disable_uart ||
+				oplus_ftm_mode == BOOT_MODE__FACTORY))
+			continue;
+		#endif /* OPLUS_FEATURE_POWERINFO_FTM */
 		if (exclusive_console && con != exclusive_console)
 			continue;
 		if (!(con->flags & CON_ENABLED))
@@ -3306,6 +3381,55 @@ out:
 	return ret;
 }
 EXPORT_SYMBOL_GPL(kmsg_dump_get_buffer);
+
+#ifdef CONFIG_OPLUS_FEATURE_UBOOT_LOG
+#include <soc/oplus/system/uboot_utils.h>
+bool back_kmsg_dump_get_buffer(struct kmsg_dumper *dumper, bool syslog,
+			  char *buf, size_t size, size_t *len)
+{
+	unsigned long flags;
+	u64 seq;
+	u32 idx;
+	size_t l = 0;
+	bool ret = false;
+
+	logbuf_lock_irqsave(flags);
+	if (dumper->cur_seq < log_first_seq) {
+		l += scnprintf(buf + l,	size - l, "Lost some logs: cur_seq:%lld, log_first_seq:%lld\n", dumper->cur_seq, log_first_seq);
+		//messages are gone, move to first available one
+		dumper->cur_seq = log_first_seq;
+		dumper->cur_idx = log_first_idx;
+	}
+
+	// last entry
+	if (dumper->cur_seq >= dumper->next_seq) {
+		logbuf_unlock_irqrestore(flags);
+		goto out;
+	}
+
+
+	// record log form cur_seq until the buf is full
+	seq = dumper->cur_seq;
+	idx = dumper->cur_idx;
+	while (l + LOG_LINE_MAX + PREFIX_MAX < size && seq < dumper->next_seq) {
+		struct printk_log *msg = log_from_idx(idx);
+
+		l += msg_print_text(msg, syslog, buf + l, size - l);
+		idx = log_next(idx);
+		seq++;
+	}
+	dumper->cur_seq = seq;
+	dumper->cur_idx = idx;
+
+	ret = true;
+	logbuf_unlock_irqrestore(flags);
+out:
+	if (len)
+		*len = l;
+	return ret;
+}
+EXPORT_SYMBOL(back_kmsg_dump_get_buffer);
+#endif /*CONFIG_OPLUS_FEATURE_UBOOT_LOG*/
 
 /**
  * kmsg_dump_rewind_nolock - reset the interator (unlocked version)

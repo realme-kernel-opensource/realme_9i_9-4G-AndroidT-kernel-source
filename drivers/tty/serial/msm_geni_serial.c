@@ -429,6 +429,19 @@ bool geni_wait_for_cmd_done(struct uart_port *uport, bool is_irq_masked)
 	return timeout ? 0 : 1;
 }
 
+#if defined(OPLUS_FEATURE_POWERINFO_FTM) && defined(CONFIG_OPLUS_POWERINFO_FTM)
+/* add for get disable uart value from cmdline */
+static struct pinctrl *serial_pinctrl = NULL;
+static struct pinctrl_state *serial_pinctrl_state_disable = NULL;
+extern bool oem_disable_uart(void);
+bool boot_with_console(void)
+{
+	return !oem_disable_uart();
+}
+
+EXPORT_SYMBOL(boot_with_console);
+#endif
+
 static void msm_geni_serial_config_port(struct uart_port *uport, int cfg_flags)
 {
 	if (cfg_flags & UART_CONFIG_TYPE)
@@ -965,6 +978,13 @@ __msm_geni_serial_console_write(struct uart_port *uport, const char *s,
 	int bytes_to_send = count;
 	int fifo_depth = DEF_FIFO_DEPTH_WORDS;
 	int tx_wm = DEF_TX_WM;
+
+#if defined(OPLUS_FEATURE_POWERINFO_FTM) && defined(CONFIG_OPLUS_POWERINFO_FTM)
+/* add for get disable uart value from cmdline */
+	if (!boot_with_console()) {
+		return;
+	}
+#endif
 
 	for (i = 0; i < count; i++) {
 		if (s[i] == '\n')
@@ -2948,6 +2968,10 @@ static void msm_geni_serial_cancel_rx(struct uart_port *uport)
 						GENI_FORCE_DEFAULT_REG);
 }
 
+#if defined(OPLUS_FEATURE_POWERINFO_FTM) && defined(CONFIG_OPLUS_POWERINFO_FTM)
+extern bool ext_boot_with_console(void);
+#endif
+
 static int __init
 msm_geni_serial_earlycon_setup(struct earlycon_device *dev,
 		const char *opt)
@@ -3285,6 +3309,31 @@ exit_ver_info:
 	return ret;
 }
 
+#if defined(OPLUS_FEATURE_POWERINFO_FTM) && defined(CONFIG_OPLUS_POWERINFO_FTM)
+/* add for get disable uart value from cmdline */
+static bool oplus_charge_id_reconfig(struct platform_device *pdev, struct uart_driver *drv)
+{
+
+	if (drv == &msm_geni_console_driver) {
+		pr_err("%s: console start get pinctrl\n", __FUNCTION__);
+		serial_pinctrl = devm_pinctrl_get(&pdev->dev);
+		if (IS_ERR_OR_NULL(serial_pinctrl)) {
+			dev_err(&pdev->dev, "No serial_pinctrl config specified!\n");
+		} else {
+			serial_pinctrl_state_disable =
+			pinctrl_lookup_state(serial_pinctrl, PINCTRL_SLEEP);
+			if (IS_ERR_OR_NULL(serial_pinctrl_state_disable)) {
+				dev_err(&pdev->dev, "No serial_pinctrl_state_disable config specified!\n");
+			} else {
+				pinctrl_select_state(serial_pinctrl, serial_pinctrl_state_disable);
+			}
+		}
+		return true;
+	}
+	return false;
+}
+#endif
+
 static int msm_geni_serial_probe(struct platform_device *pdev)
 {
 	int ret = 0;
@@ -3308,6 +3357,13 @@ static int msm_geni_serial_probe(struct platform_device *pdev)
 								__func__);
 		return -ENODEV;
 	}
+
+#if defined(OPLUS_FEATURE_POWERINFO_FTM) && defined(CONFIG_OPLUS_POWERINFO_FTM)
+/* add for get disable uart value from cmdline */
+	if (!boot_with_console() && oplus_charge_id_reconfig(pdev, drv)) {
+		return -ENODEV;
+	}
+#endif
 
 	if (pdev->dev.of_node) {
 		if (drv->cons) {
@@ -3838,6 +3894,13 @@ static int __init msm_geni_serial_init(void)
 		msm_geni_console_port.uport.flags = UPF_BOOT_AUTOCONF;
 		msm_geni_console_port.uport.line = i;
 	}
+
+#if defined(OPLUS_FEATURE_POWERINFO_FTM) && defined(CONFIG_OPLUS_POWERINFO_FTM)
+/* add for get disable uart value from cmdline */
+	if (!boot_with_console()) {
+		msm_geni_console_driver.cons = NULL;
+	}
+#endif
 
 	ret = console_register(&msm_geni_console_driver);
 	if (ret)

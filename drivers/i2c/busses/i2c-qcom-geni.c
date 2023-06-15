@@ -23,6 +23,12 @@
 #include <linux/pinctrl/consumer.h>
 #include <linux/slab.h>
 
+#ifdef OPLUS_FEATURE_CHG_BASIC
+#include <linux/pm_qos.h>
+#include "../../power/oplus/oplus_vooc.h"
+#include <soc/oplus/system/boot_mode.h>
+#endif /* OPLUS_FEATURE_CHG_BASIC_DEBUG */
+
 #define SE_I2C_TX_TRANS_LEN		(0x26C)
 #define SE_I2C_RX_TRANS_LEN		(0x270)
 #define SE_I2C_SCL_COUNTERS		(0x278)
@@ -724,7 +730,104 @@ geni_i2c_gsi_xfer_out:
 		ret = gi2c->err;
 	return ret;
 }
+#ifdef OPLUS_FEATURE_CHG_BASIC
+#define MAX_RESET_COUNT	10
+#define I2C_RESET_BUS		0
+#define FG_DEVICE_ADDR		0x55
+#define DA9313_DEVICE_ADDR	0x68
+//#define CHARGER_DEVICE_ADDR 0x5c
+//#define MCU_DEVICE_ADDR	    0x26
+static bool i2c_err_occured = false;
+static unsigned int err_count = 0;
+static unsigned int i2c_err_cnt = 0;
 
+extern int rpmb_is_enable(void);
+
+bool oplus_get_fg_i2c_err_occured(void)
+{
+	return i2c_err_occured;
+}
+EXPORT_SYMBOL(oplus_get_fg_i2c_err_occured);
+
+void oplus_set_fg_i2c_err_occured(bool i2c_err)
+{
+	i2c_err_occured = i2c_err;
+}
+EXPORT_SYMBOL(oplus_set_fg_i2c_err_occured);
+
+static void i2c_oplus_gpio_reset(struct geni_i2c_dev *gi2c)
+{
+	int ret = 0;
+	int i = 0;
+	static bool i2c_reset_processing = false;
+	int boot_mode = get_boot_mode();
+
+	//dev_err(gi2c->dev, "%s: start, return\n", __func__);
+	if (gi2c == NULL)
+		return;
+
+	if ((boot_mode != MSM_BOOT_MODE__NORMAL)
+			&& (boot_mode != MSM_BOOT_MODE__RECOVERY)
+			&& (boot_mode != MSM_BOOT_MODE__SILENCE)
+			&& (boot_mode != MSM_BOOT_MODE__SAU)
+			&& (boot_mode != MSM_BOOT_MODE__CHARGE)) {
+		dev_err(gi2c->dev, "%s: get_boot_mode[%d], return\n", __func__, boot_mode);
+		return;
+	}
+
+	if (i2c_reset_processing == true) {
+		dev_err(gi2c->dev, "%s: i2c_reset is processing, return\n", __func__);
+		return;
+	}
+
+	i2c_reset_processing = true;
+
+	if (!IS_ERR_OR_NULL(gi2c->i2c_rsc.geni_gpio_pulldown)) {
+		dev_err(gi2c->dev, "%s: set geni_gpio_pulldown\n", __func__);
+		ret = pinctrl_select_state(gi2c->i2c_rsc.geni_pinctrl, gi2c->i2c_rsc.geni_gpio_pulldown);
+		if (ret) {
+			dev_err(gi2c->dev, "%s: error pinctrl_select_state pulldown, ret:%d\n", __func__, ret);
+			goto err;
+		}
+	} else {
+		goto err;
+	}
+
+	for (i = 0; i < 220; i++) {
+		usleep_range(10000, 11000);
+		if (oplus_vooc_get_fastchg_started() == true && oplus_vooc_get_fastchg_ing() == false) {
+			dev_err(gi2c->dev, "%s: vooc ready to start, don't pull down i2c, i:%d\n", __func__, i);
+			break;
+		}
+	}
+	oplus_set_fg_i2c_err_occured(true);
+
+	if (!IS_ERR_OR_NULL(gi2c->i2c_rsc.geni_gpio_pullup)) {
+		dev_err(gi2c->dev, "%s: set geni_gpio_pullup\n", __func__);
+		ret = pinctrl_select_state(gi2c->i2c_rsc.geni_pinctrl, gi2c->i2c_rsc.geni_gpio_pullup);
+		if (ret) {
+			dev_err(gi2c->dev, "%s:error pinctrl_select_state pullup, ret:%d\n", __func__, ret);
+		}
+	}
+	if (!IS_ERR_OR_NULL(gi2c->i2c_rsc.geni_gpio_active)) {
+		dev_err(gi2c->dev, "%s: set geni_gpio_active\n", __func__);
+		ret = pinctrl_select_state(gi2c->i2c_rsc.geni_pinctrl, gi2c->i2c_rsc.geni_gpio_active);
+		if (ret) {
+			dev_err(gi2c->dev, "%s:error pinctrl_select_state active, ret:%d\n", __func__, ret);
+			goto err;
+		}
+	} else {
+		goto err;
+	}
+
+	i2c_reset_processing = false;
+	dev_err(gi2c->dev, "%s: gpio reset successful id:%d\n", __func__, gi2c->adap.nr);
+	return;
+
+err:
+	i2c_reset_processing = false;
+}
+#endif /*VENDOR_EDIT*/
 static int geni_i2c_xfer(struct i2c_adapter *adap,
 			 struct i2c_msg msgs[],
 			 int num)
@@ -733,7 +836,6 @@ static int geni_i2c_xfer(struct i2c_adapter *adap,
 	int i, ret = 0, timeout = 0;
 
 	gi2c->err = 0;
-
 	/* Client to respect system suspend */
 	if (!pm_runtime_enabled(gi2c->dev)) {
 		GENI_SE_ERR(gi2c->ipcl, false, gi2c->dev,
@@ -902,6 +1004,34 @@ static int geni_i2c_xfer(struct i2c_adapter *adap,
 		}
 
 		ret = gi2c->err;
+#ifdef OPLUS_FEATURE_CHG_BASIC
+		if(msgs[i].addr == FG_DEVICE_ADDR) {
+			if (gi2c->err) {
+				dev_err(gi2c->dev, "gi2c->adap.nr[%d], err_count[%d], msgs[i].addr[0x%x]\n", gi2c->adap.nr, err_count, msgs[i].addr);
+				if (err_count < MAX_RESET_COUNT) {
+					i2c_oplus_gpio_reset(gi2c);
+				} else {
+					dev_err(gi2c->dev, "err_count(%d) >= %d so not reset\n", err_count, MAX_RESET_COUNT);
+				}
+				err_count++;
+			} else  {
+				if(msgs[i].addr == FG_DEVICE_ADDR) {
+					err_count = 0;
+				}
+			}
+			if (gi2c->err) {
+				dev_err(gi2c->dev, "iic_mornitor gi2c->adap.nr[%d], i2c_err_cnt[%d], msgs[i].addr[0x%x]\n", gi2c->adap.nr, i2c_err_cnt, msgs[i].addr);
+				if (i2c_err_cnt < MAX_RESET_COUNT) {
+					dev_err(gi2c->dev, "iic_mornitor gi2c->adap.nr[%d], i2c_err_cnt[%d], msgs[i].addr[0x%x]\n", gi2c->adap.nr, i2c_err_cnt, msgs[i].addr);
+				} else {
+					dev_err(gi2c->dev, "iic_mornitor i2c_err_cnt(%d) >= %d so not reset\n", i2c_err_cnt, MAX_RESET_COUNT);
+				}
+				i2c_err_cnt++;
+			} else  {
+				i2c_err_cnt = 0;
+			}
+		}
+#endif
 		if (gi2c->err) {
 			GENI_SE_ERR(gi2c->ipcl, true, gi2c->dev,
 				"i2c error :%d\n", gi2c->err);
@@ -1027,7 +1157,24 @@ static int geni_i2c_probe(struct platform_device *pdev)
 		gi2c->is_shared = true;
 		dev_info(&pdev->dev, "Multi-EE usecase\n");
 	}
-
+#ifdef OPLUS_FEATURE_CHG_BASIC
+	gi2c->i2c_rsc.geni_gpio_pulldown =
+		pinctrl_lookup_state(gi2c->i2c_rsc.geni_pinctrl,
+							PINCTRL_PULLDOWN);
+	if (IS_ERR_OR_NULL(gi2c->i2c_rsc.geni_gpio_pulldown)) {
+		/*dev_err(&pdev->dev, "No pulldown config specified\n");
+		ret = PTR_ERR(gi2c->i2c_rsc.geni_gpio_pulldown);
+		return ret;*/
+	}
+	gi2c->i2c_rsc.geni_gpio_pullup =
+		pinctrl_lookup_state(gi2c->i2c_rsc.geni_pinctrl,
+							PINCTRL_PULLUP);
+	if (IS_ERR_OR_NULL(gi2c->i2c_rsc.geni_gpio_pullup)) {
+		/*dev_err(&pdev->dev, "No pulldown config specified\n");
+		ret = PTR_ERR(gi2c->i2c_rsc.geni_gpio_pullup);
+		return ret;*/
+	}
+#endif
 	if (of_property_read_u32(pdev->dev.of_node, "qcom,clk-freq-out",
 				&gi2c->i2c_rsc.clk_freq_out)) {
 		gi2c->i2c_rsc.clk_freq_out = KHz(400);
@@ -1084,7 +1231,6 @@ static int geni_i2c_probe(struct platform_device *pdev)
 		dev_err(gi2c->dev, "Add adapter failed\n");
 		return ret;
 	}
-
 	dev_dbg(gi2c->dev, "I2C probed\n");
 	return 0;
 }
@@ -1092,7 +1238,6 @@ static int geni_i2c_probe(struct platform_device *pdev)
 static int geni_i2c_remove(struct platform_device *pdev)
 {
 	struct geni_i2c_dev *gi2c = platform_get_drvdata(pdev);
-
 	pm_runtime_disable(gi2c->dev);
 	i2c_del_adapter(&gi2c->adap);
 	if (gi2c->ipcl)
@@ -1122,6 +1267,7 @@ static int geni_i2c_runtime_suspend(struct device *dev)
 	} else {
 		se_geni_resources_off(&gi2c->i2c_rsc);
 	}
+
 	GENI_SE_DBG(gi2c->ipcl, false, gi2c->dev, "%s\n", __func__);
 	return 0;
 }

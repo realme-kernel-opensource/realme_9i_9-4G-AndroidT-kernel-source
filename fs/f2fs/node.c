@@ -1400,6 +1400,9 @@ page_hit:
 			  nid, nid_of_node(page), ino_of_node(page),
 			  ofs_of_node(page), cpver_of_node(page),
 			  next_blkaddr_of_node(page));
+#ifdef CONFIG_OPLUS_FEATURE_OF2FS
+		set_sbi_flag(sbi, SBI_NEED_FSCK);
+#endif
 		err = -EINVAL;
 out_err:
 		ClearPageUptodate(page);
@@ -1959,6 +1962,7 @@ continue_unlock:
 				if (flush_dirty_inode(page))
 					goto lock_node;
 			}
+
 write_node:
 			f2fs_wait_on_page_writeback(page, NODE, true, true);
 

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2013-2021, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/slab.h>
@@ -995,6 +996,7 @@ static inline void _decrement_submit_now(struct kgsl_device *device)
  *
  * Lock the dispatcher and call _adreno_dispatcher_issueibcmds
  */
+#ifndef OPLUS_FEATURE_DISPLAY
 static void adreno_dispatcher_issuecmds(struct adreno_device *adreno_dev)
 {
 	struct adreno_dispatcher *dispatcher = &adreno_dev->dispatcher;
@@ -1022,6 +1024,7 @@ static void adreno_dispatcher_issuecmds(struct adreno_device *adreno_dev)
 done:
 	adreno_dispatcher_schedule(device);
 }
+#endif /* OPLUS_FEATURE_DISPLAY */
 
 /**
  * get_timestamp() - Return the next timestamp for the context
@@ -1152,7 +1155,8 @@ static inline bool _verify_ib(struct kgsl_device_private *dev_priv,
 	}
 
 	/* Make sure that the address is mapped */
-	if (!kgsl_mmu_gpuaddr_in_range(private->pagetable, ib->gpuaddr)) {
+	if (!kgsl_mmu_gpuaddr_in_range(private->pagetable, ib->gpuaddr,
+		ib->size)) {
 		pr_context(device, context, "ctxt %d invalid ib gpuaddr %llX\n",
 			context->id, ib->gpuaddr);
 		return false;
@@ -1514,7 +1518,11 @@ int adreno_dispatcher_queue_cmds(struct kgsl_device_private *dev_priv,
 	 */
 
 	if (dispatch_q->inflight < _context_drawobj_burst)
+#ifndef OPLUS_FEATURE_DISPLAY
 		adreno_dispatcher_issuecmds(adreno_dev);
+#else
+		adreno_dispatcher_schedule(&(adreno_dev->dev));
+#endif /*OPLUS_FEATURE_DISPLAY*/
 done:
 	if (test_and_clear_bit(ADRENO_CONTEXT_FAULT, &context->priv))
 		return -EPROTO;
@@ -2208,6 +2216,10 @@ static int dispatcher_do_fault(struct adreno_device *adreno_dev)
 	if (gx_on)
 		adreno_readreg64(adreno_dev, ADRENO_REG_CP_RB_BASE,
 			ADRENO_REG_CP_RB_BASE_HI, &base);
+
+	#if IS_ENABLED(CONFIG_DRM_MSM)
+	device->snapshotfault = fault;
+	#endif
 
 	/*
 	 * Force the CP off for anything but a hard fault to make sure it is

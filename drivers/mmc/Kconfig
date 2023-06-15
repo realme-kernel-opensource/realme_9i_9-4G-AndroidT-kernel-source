@@ -14,8 +14,8 @@ menuconfig MMC
 
 if MMC
 
-source "drivers/mmc/core/Kconfig"
+source "drivers/ommc/core/Kconfig"
 
-source "drivers/mmc/host/Kconfig"
+source "drivers/ommc/host/Kconfig"
 
 endif # MMC

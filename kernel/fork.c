@@ -107,6 +107,15 @@
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/task.h>
+#ifdef OPLUS_FEATURE_SCHED_ASSIST
+#include <linux/sched_assist/sched_assist_fork.h>
+#endif /* OPLUS_FEATURE_SCHED_ASSIST */
+
+#ifdef OPLUS_FEATURE_HEALTHINFO
+#ifdef CONFIG_OPLUS_JANK_INFO
+#include <linux/healthinfo/jank_monitor.h>
+#endif
+#endif /* OPLUS_FEATURE_HEALTHINFO */
 
 /*
  * Minimum number of threads to boot the kernel
@@ -571,6 +580,7 @@ static __latent_entropy int dup_mmap(struct mm_struct *mm,
 		if (retval)
 			goto out;
 	}
+
 	/* a new mm has just been created */
 	retval = arch_dup_mmap(oldmm, mm);
 out:
@@ -719,7 +729,7 @@ static inline void put_signal_struct(struct signal_struct *sig)
 void __put_task_struct(struct task_struct *tsk)
 {
 	WARN_ON(!tsk->exit_state);
-	WARN_ON(atomic_read(&tsk->usage));
+	WARN_ON(refcount_read(&tsk->usage));
 	WARN_ON(tsk == current);
 
 	cgroup_free(tsk);
@@ -897,10 +907,12 @@ static struct task_struct *dup_task_struct(struct task_struct *orig, int node)
 #endif
 
 	/*
-	 * One for us, one for whoever does the "release_task()" (usually
-	 * parent)
+	 * One for the user space visible state that goes away when reaped.
+	 * One for the scheduler.
 	 */
-	atomic_set(&tsk->usage, 2);
+	refcount_set(&tsk->rcu_users, 2);
+	/* One for the rcu users */
+	refcount_set(&tsk->usage, 1);
 #ifdef CONFIG_BLK_DEV_IO_TRACE
 	tsk->btrace_seq = 0;
 #endif
@@ -986,6 +998,11 @@ static struct mm_struct *mm_init(struct mm_struct *mm, struct task_struct *p,
 	mm->mmap = NULL;
 	mm->mm_rb = RB_ROOT;
 	mm->vmacache_seqnum = 0;
+#if defined(OPLUS_FEATURE_VIRTUAL_RESERVE_MEMORY) && defined(CONFIG_VIRTUAL_RESERVE_MEMORY)
+	mm->va_feature = 0;
+	mm->va_feature_rnd = 0;
+	mm->zygoteheap_in_MB = 0;
+#endif
 #ifdef CONFIG_SPECULATIVE_PAGE_FAULT
 	rwlock_init(&mm->mm_rb_lock);
 #endif
@@ -2042,6 +2059,16 @@ static __latent_entropy struct task_struct *copy_process(
 	p->sequential_io_avg	= 0;
 #endif
 
+#ifdef OPLUS_FEATURE_SCHED_ASSIST
+	init_task_ux_info(p);
+#endif /* OPLUS_FEATURE_SCHED_ASSIST */
+
+#ifdef OPLUS_FEATURE_HEALTHINFO
+#ifdef CONFIG_OPLUS_JANK_INFO
+	p->jank_trace = 0;
+	memset(&p->jank_info, 0, sizeof(struct jank_monitor_info));
+#endif
+#endif /* OPLUS_FEATURE_HEALTHINFO */
 	/* Perform scheduler related setup. Assign this task to a CPU. */
 	retval = sched_fork(clone_flags, p);
 	if (retval)
@@ -2423,7 +2450,14 @@ long _do_fork(unsigned long clone_flags,
 
 	pid = get_task_pid(p, PIDTYPE_PID);
 	nr = pid_vnr(pid);
-
+#if defined(OPLUS_FEATURE_MEMLEAK_DETECT) && defined(CONFIG_ION) && defined(CONFIG_DUMP_TASKS_MEM)
+	//accounts process-real-phymem
+	atomic64_set(&p->ions, 0);
+#endif
+#ifdef CONFIG_LOCKING_NO_PREEMPT_WAKEUP
+	p->locking_time_start = 0;
+	p->preempt_locking_context = false;
+#endif
 	if (clone_flags & CLONE_PARENT_SETTID)
 		put_user(nr, parent_tidptr);
 

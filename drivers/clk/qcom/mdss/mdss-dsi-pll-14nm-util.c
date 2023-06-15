@@ -41,9 +41,15 @@ static int mdss_pll_read_stored_trim_codes(
 			codes_info->pll_codes.pll_codes_1,
 			codes_info->pll_codes.pll_codes_2);
 
+		#ifdef OPLUS_BUG_STABILITY
+		if ((vco_clk_rate / 1000) != (codes_info->clk_rate / 1000) &&
+				codes_info->is_valid) {
+		#else
 		if (vco_clk_rate != codes_info->clk_rate &&
-				codes_info->is_valid)
-			continue;
+				codes_info->is_valid) {
+		#endif /* OPLUS_BUG_STABILITY */
+				continue;
+		}
 
 		dsi_pll_res->cache_pll_trim_codes[0] =
 			codes_info->pll_codes.pll_codes_1;

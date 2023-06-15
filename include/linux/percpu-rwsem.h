@@ -8,6 +8,8 @@
 #include <linux/rcuwait.h>
 #include <linux/rcu_sync.h>
 #include <linux/lockdep.h>
+#include <linux/sched.h>
+#include <linux/jiffies.h>
 
 struct percpu_rw_semaphore {
 	struct rcu_sync		rss;
@@ -58,6 +60,7 @@ static inline void percpu_down_read(struct percpu_rw_semaphore *sem)
 {
 	percpu_down_read_preempt_disable(sem);
 	preempt_enable();
+	current->locking_time_start = jiffies;
 }
 
 static inline int percpu_down_read_trylock(struct percpu_rw_semaphore *sem)
@@ -77,8 +80,10 @@ static inline int percpu_down_read_trylock(struct percpu_rw_semaphore *sem)
 	 * bleeding the critical section out.
 	 */
 
-	if (ret)
+	if (ret) {
 		rwsem_acquire_read(&sem->rw_sem.dep_map, 0, 1, _RET_IP_);
+		current->locking_time_start = jiffies;
+	}
 
 	return ret;
 }
@@ -99,6 +104,7 @@ static inline void percpu_up_read_preempt_enable(struct percpu_rw_semaphore *sem
 		__percpu_up_read(sem); /* Unconditional memory barrier */
 	preempt_enable();
 
+	current->locking_time_start = 0;
 	rwsem_release(&sem->rw_sem.dep_map, 1, _RET_IP_);
 }
 

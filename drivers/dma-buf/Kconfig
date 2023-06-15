@@ -40,4 +40,11 @@ config DEBUG_DMA_BUF_REF
 	  matching the get/put call stacks.  This feature consumes extra memory
 	  in order to save the stack traces using STACKDEPOT.
 
+config DMABUF_PROC_INTERFACE
+	bool "create proc interface for getting dmabuf meminfo"
+	default n
+	depends on PROC_FS
+	help
+	  Create proc interface for getting ion meminfo
+
 endmenu

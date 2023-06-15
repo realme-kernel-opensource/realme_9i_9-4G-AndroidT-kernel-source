@@ -622,6 +622,33 @@ config QTI_MAXIM_FAN_CONTROLLER
 	  Also, this driver initializes the power for the fan controller
 	  and exposes sysfs node to control different speeds of fan.
 
+
+#ifdef OPLUS_FEATURE_TP_BASIC
+config SIM_DETECT
+	tristate "SIM_DETECT system"
+	default n
+	help
+	  Say Y here to enable sim detect system support
+#endif /* OPLUS_FEATURE_TP_BASIC */
+
+#ifdef OPLUS_FEATURE_SIM_DETECT
+config OEM_QMI
+	tristate "oem qmi feature"
+	default n
+	help
+	  Say Y here to enable oem qmi support
+#endif /* OPLUS_FEATURE_SIM_DETECT */
+
+#ifdef VENDOR_EDIT
+config OPLUS_RF_CABLE_MONITOR
+	bool "OPLUS rf cable monitor system"
+	depends on OF
+	select PINMUX
+	default n
+	help
+	  Say Y here to enable OPLUS rf cable monitor system support
+#endif /* VENDOR_EDIT */
+
 source "drivers/misc/c2port/Kconfig"
 source "drivers/misc/eeprom/Kconfig"
 source "drivers/misc/cb710/Kconfig"
@@ -638,6 +665,7 @@ source "drivers/misc/ocxl/Kconfig"
 source "drivers/misc/cardreader/Kconfig"
 source "drivers/misc/fpr_FingerprintCard/Kconfig"
 source "drivers/misc/qrc/Kconfig"
+source "drivers/misc/oplus_misc_healthinfo/Kconfig"
 endmenu
 
 config OKL4_USER_VIPC

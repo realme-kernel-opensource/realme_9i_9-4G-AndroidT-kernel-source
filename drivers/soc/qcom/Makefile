@@ -67,6 +67,9 @@ obj-$(CONFIG_SOC_BUS) += socinfo.o
 obj-$(CONFIG_QCOM_WATCHDOG_V2) += watchdog_v2.o
 obj-$(CONFIG_QCOM_SDM845_LLCC) += llcc-sdm845.o
 CFLAGS_rpmh-rsc.o := -I$(src)
+ifdef CONFIG_TCPC_CLASS
+ccflags-y += -I$(srctree)/drivers/usb/typec/pd/inc/
+endif
 obj-$(CONFIG_QCOM_BUS_SCALING) += msm_bus/
 obj-$(CONFIG_QCOM_FSA4480_I2C) += fsa4480-i2c.o
 obj-$(CONFIG_QCOM_GLINK) += glink_probe.o

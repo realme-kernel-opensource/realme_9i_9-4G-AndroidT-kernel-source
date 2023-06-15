@@ -291,3 +291,10 @@ obj-$(CONFIG_GENERIC_LIB_LSHRDI3) += lshrdi3.o
 obj-$(CONFIG_GENERIC_LIB_MULDI3) += muldi3.o
 obj-$(CONFIG_GENERIC_LIB_CMPDI2) += cmpdi2.o
 obj-$(CONFIG_GENERIC_LIB_UCMPDI2) += ucmpdi2.o
+
+# ifdef CONFIG_VMALLOC_DEBUG
+# /* add memleak detect stack depot */
+obj-$(CONFIG_VMALLOC_DEBUG) += memleak_debug_stackdepot.o
+KASAN_SANITIZE_memleak_debug_stackdepot.o := n
+KCOV_INSTRUMENT_memleak_debug_stackdepot.o := n
+# endif

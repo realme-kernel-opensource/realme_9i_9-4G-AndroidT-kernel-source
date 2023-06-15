@@ -1037,11 +1037,9 @@ static int mtp_send_event(struct mtp_dev *dev, struct mtp_event *event)
 	if (dev->state == STATE_OFFLINE)
 		return -ENODEV;
 
-	ret = wait_event_interruptible_timeout(dev->intr_wq,
-			(req = mtp_req_get(dev, &dev->intr_idle)),
-			msecs_to_jiffies(1000));
+	req = mtp_req_get(dev, &dev->intr_idle);
 	if (!req)
-		return -ETIME;
+		return -EBUSY;
 
 	if (copy_from_user(req->buf, (void __user *)event->data, length)) {
 		mtp_req_put(dev, &dev->intr_idle, req);

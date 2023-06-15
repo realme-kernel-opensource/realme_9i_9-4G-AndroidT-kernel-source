@@ -120,6 +120,9 @@ void up_read(struct rw_semaphore *sem)
 	DEBUG_RWSEMS_WARN_ON(sem->owner != RWSEM_READER_OWNED);
 
 	__up_read(sem);
+#ifdef CONFIG_LOCKING_NO_PREEMPT_WAKEUP
+	current->locking_time_start = 0;
+#endif
 }
 
 EXPORT_SYMBOL(up_read);
@@ -134,6 +137,9 @@ void up_write(struct rw_semaphore *sem)
 
 	rwsem_clear_owner(sem);
 	__up_write(sem);
+#ifdef CONFIG_LOCKING_NO_PREEMPT_WAKEUP
+	current->locking_time_start = 0;
+#endif
 }
 
 EXPORT_SYMBOL(up_write);
@@ -182,6 +188,9 @@ void down_read_non_owner(struct rw_semaphore *sem)
 
 	__down_read(sem);
 	rwsem_set_reader_owned(sem);
+#ifdef CONFIG_LOCKING_NO_PREEMPT_WAKEUP
+	current->locking_time_start = jiffies;
+#endif
 }
 
 EXPORT_SYMBOL(down_read_non_owner);
@@ -217,6 +226,9 @@ void up_read_non_owner(struct rw_semaphore *sem)
 {
 	DEBUG_RWSEMS_WARN_ON(sem->owner != RWSEM_READER_OWNED);
 	__up_read(sem);
+#ifdef CONFIG_LOCKING_NO_PREEMPT_WAKEUP
+	current->locking_time_start = 0;
+#endif
 }
 
 EXPORT_SYMBOL(up_read_non_owner);

@@ -1177,5 +1177,31 @@ config REGULATOR_PM8008
 	  This driver controls PM8008 PMIC chip and the voltage
 	  regulators found in Qualcomm Technologies Inc. PM8008
 	  PMIC.
+
+config FAN53870_LDO
+	bool "FAN53870 PMIC I2C Driver"
+	default y
+	---help---
+	  Say Y here to support the FAN53870 PMIC chip.
+	  This driver controls FAN53870 PMIC chip and the voltage
+	  regulators found in Qualcomm Technologies Inc. FAN53870
+	  PMIC.
+
+config REGULATOR_OPLUS_WL2868C
+	tristate "WL2868C PMIC I2C Driver"
+	default y
+	help
+	  Say Y here to support the WL2868C PMIC chip.
+	  This driver controls WL2868C PMIC chip and the voltage
+	  regulators found in Qualcomm Technologies Inc. WL2868C
+	  PMIC.
+
+config REGULATOR_OPLUS_WL2868C_FP_LDO
+	bool "Fingerprint uses LDO of WL2868C"
+	default n
+	help
+	  Say Y here to agree that the fingerprint supports the
+	  WL2868C PMIC chip.
+
 endif
 

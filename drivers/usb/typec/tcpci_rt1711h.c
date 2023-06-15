@@ -12,9 +12,12 @@
 #include <linux/gpio/consumer.h>
 #include <linux/usb/tcpm.h>
 #include <linux/regmap.h>
+#include <linux/of_gpio.h>
+#include <linux/of.h>
 #include "tcpci.h"
 
-#define RT1711H_VID		0x29CF
+#define RT1711H_VID		0x6dcf
+
 #define RT1711H_PID		0x1711
 
 #define RT1711H_RTCTRL8		0x9B
@@ -39,6 +42,7 @@ struct rt1711h_chip {
 	struct tcpci_data data;
 	struct tcpci *tcpci;
 	struct device *dev;
+	int pwr_en;
 };
 
 static int rt1711h_read16(struct rt1711h_chip *chip, unsigned int reg, u16 *val)
@@ -216,7 +220,31 @@ static int rt1711h_probe(struct i2c_client *client,
 			 const struct i2c_device_id *i2c_id)
 {
 	int ret;
+	int rc = 0;
 	struct rt1711h_chip *chip;
+	struct device_node *node = client->dev.of_node;
+
+	chip = devm_kzalloc(&client->dev, sizeof(*chip), GFP_KERNEL);
+	if (!chip)
+		return -ENOMEM;
+
+	if (!node) {
+		dev_err(&client->dev,"device tree node missing");
+		return -EINVAL;
+	}
+
+	chip->pwr_en = of_get_named_gpio(node, "rt1711h,en_pwr", 0);
+
+	if (chip->pwr_en > 0){
+		if (gpio_is_valid(chip->pwr_en)) {
+			rc = gpio_request(chip->pwr_en,
+				"rt1711h-en-gpio");
+			if (rc) {
+				dev_err(&client->dev,"unable to request gpio [%d]\n", chip->pwr_en);
+			}
+		}
+	}
+	gpio_direction_output(chip->pwr_en, 1);
 
 	ret = rt1711h_check_revision(client);
 	if (ret < 0) {
@@ -224,9 +252,6 @@ static int rt1711h_probe(struct i2c_client *client,
 		return ret;
 	}
 
-	chip = devm_kzalloc(&client->dev, sizeof(*chip), GFP_KERNEL);
-	if (!chip)
-		return -ENOMEM;
 
 	chip->data.regmap = devm_regmap_init_i2c(client,
 						 &rt1711h_regmap_config);

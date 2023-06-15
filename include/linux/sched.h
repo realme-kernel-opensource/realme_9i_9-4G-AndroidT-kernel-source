@@ -21,6 +21,7 @@
 #include <linux/seccomp.h>
 #include <linux/nodemask.h>
 #include <linux/rcupdate.h>
+#include <linux/refcount.h>
 #include <linux/resource.h>
 #include <linux/latencytop.h>
 #include <linux/sched/prio.h>
@@ -29,6 +30,12 @@
 #include <linux/mm_event.h>
 #include <linux/task_io_accounting.h>
 #include <linux/rseq.h>
+
+#ifdef OPLUS_FEATURE_HEALTHINFO
+#ifdef CONFIG_OPLUS_JANK_INFO
+#include <linux/healthinfo/jank_monitor.h>
+#endif
+#endif /* OPLUS_FEATURE_HEALTHINFO */
 
 /* task_struct member predeclarations (sorted alphabetically): */
 struct audit_context;
@@ -225,6 +232,18 @@ enum fps {
 	} while (0)
 
 #endif
+
+#ifdef OPLUS_FEATURE_SCHED_ASSIST
+extern int sysctl_sched_assist_enabled;
+extern int sysctl_sched_assist_scene;
+#endif /* OPLUS_FEATURE_SCHED_ASSIST */
+#ifdef OPLUS_FEATURE_SCHED_ASSIST
+extern int sysctl_cpu_multi_thread;
+#endif
+#ifdef OPLUS_FEATURE_SCHED_ASSIST
+extern int sysctl_slide_boost_enabled;
+extern int sysctl_boost_task_threshold;
+#endif /* OPLUS_FEATURE_SCHED_ASSIST */
 
 /* Task command name length: */
 #define TASK_COMM_LEN			16
@@ -806,6 +825,14 @@ struct wake_q_node {
 	struct wake_q_node *next;
 };
 
+#if defined(OPLUS_FEATURE_PROCESS_RECLAIM) && defined(CONFIG_PROCESS_RECLAIM_ENHANCE)
+/* Record process reclaim memory information */
+union reclaim_limit {
+	unsigned long stop_jiffies;
+	unsigned long stop_scan_addr;
+};
+#endif
+
 struct task_struct {
 #ifdef CONFIG_THREAD_INFO_IN_TASK
 	/*
@@ -824,10 +851,14 @@ struct task_struct {
 	randomized_struct_fields_start
 
 	void				*stack;
-	atomic_t			usage;
+	refcount_t			usage;
 	/* Per task flags (PF_*), defined further below: */
 	unsigned int			flags;
 	unsigned int			ptrace;
+
+#ifdef CONFIG_OPLUS_SF_BOOST
+	int compensate_need;
+#endif
 
 #ifdef CONFIG_SMP
 	struct llist_node		wake_entry;
@@ -1175,6 +1206,11 @@ struct task_struct {
 	struct mutex_waiter		*blocked_on;
 #endif
 
+#ifdef CONFIG_LOCKING_NO_PREEMPT_WAKEUP
+	unsigned long locking_time_start;
+	bool preempt_locking_context;
+#endif
+
 #ifdef CONFIG_TRACE_IRQFLAGS
 	unsigned int			irq_events;
 	unsigned long			hardirq_enable_ip;
@@ -1344,7 +1380,10 @@ struct task_struct {
 
 	struct tlbflush_unmap_batch	tlb_ubc;
 
-	struct rcu_head			rcu;
+	union {
+		refcount_t		rcu_users;
+		struct rcu_head		rcu;
+	};
 
 	/* Cache last used pipe for splice(): */
 	struct pipe_inode_info		*splice_pipe;
@@ -1371,6 +1410,11 @@ struct task_struct {
 #ifdef CONFIG_LATENCYTOP
 	int				latency_record_count;
 	struct latency_record		latency_record[LT_SAVECOUNT];
+#endif
+#if defined(OPLUS_FEATURE_MEMLEAK_DETECT) && defined(CONFIG_ION) && defined(CONFIG_DUMP_TASKS_MEM)
+	/* record ions info of task. */
+	struct list_head user_tasks;
+	atomic64_t ions;
 #endif
 	/*
 	 * Time slack values; these are used to round up poll() and
@@ -1449,7 +1493,10 @@ struct task_struct {
 #ifdef CONFIG_BLK_CGROUP
 	struct request_queue		*throttle_queue;
 #endif
-
+#if defined(OPLUS_FEATURE_PROCESS_RECLAIM) && defined(CONFIG_PROCESS_RECLAIM)
+	/* Record process reclaim infor */
+	union reclaim_limit reclaim;
+#endif
 #ifdef CONFIG_UPROBES
 	struct uprobe_task		*utask;
 #endif
@@ -1478,6 +1525,39 @@ struct task_struct {
 	/* Used by LSM modules for access restriction: */
 	void				*security;
 #endif
+#ifdef OPLUS_FEATURE_SCHED_ASSIST
+	int ux_state;
+	atomic64_t inherit_ux;
+	struct list_head ux_entry;
+	int ux_depth;
+	u64 enqueue_time;
+	u64 inherit_ux_start;
+#ifdef CONFIG_OPLUS_FEATURE_SCHED_SPREAD
+	int lb_state;
+	int ld_flag;
+#endif
+#endif /* OPLUS_FEATURE_SCHED_ASSIST */
+#ifdef CONFIG_MMAP_LOCK_OPT
+//#ifdef CONFIG_UXCHAIN_V2
+	int ux_once;
+	u64 get_mmlock_ts;
+	int get_mmlock;
+#endif
+#if IS_ENABLED(CONFIG_OPLUS_FEATURE_FDLEAK_CHECK)
+	unsigned int fdleak_flag;
+#endif
+#ifdef OPLUS_FEATURE_HEALTHINFO
+#ifdef CONFIG_OPLUS_JANK_INFO
+	int jank_trace;
+	struct jank_monitor_info jank_info;
+	unsigned in_mutex:1;
+	unsigned in_downread:1;
+	unsigned in_downwrite:1;
+	unsigned in_futex:1;
+	unsigned in_binder:1;
+	unsigned in_epoll:1;
+#endif
+#endif /* OPLUS_FEATURE_HEALTHINFO */
 	/* task is frozen/stopped (used by the cgroup freezer) */
 	ANDROID_KABI_USE(1, unsigned frozen:1);
 
@@ -1497,6 +1577,7 @@ struct task_struct {
 	 * Do not put anything below here!
 	 */
 };
+
 
 static inline struct pid *task_pid(struct task_struct *task)
 {
@@ -1655,6 +1736,9 @@ extern struct pid *cad_pid;
 /*
  * Per process flags
  */
+#ifdef CONFIG_SHRINK_LRU_TRYLOCK
+#define PF_SHRNIK_LRUVECD	0x00000001      /* Early kill for mce process policy */
+#endif /* CONFIG_SHRINK_LRU_TRYLOCK */
 #define PF_IDLE			0x00000002	/* I am an IDLE thread */
 #define PF_EXITING		0x00000004	/* Getting shut down */
 #define PF_EXITPIDONE		0x00000008	/* PI exit done on shut down */
@@ -1685,6 +1769,12 @@ extern struct pid *cad_pid;
 #define PF_MUTEX_TESTER		0x20000000	/* Thread belongs to the rt mutex tester */
 #define PF_FREEZER_SKIP		0x40000000	/* Freezer should not count it as freezable */
 #define PF_SUSPEND_TASK		0x80000000      /* This thread called freeze_processes() and should not be frozen */
+#if defined(OPLUS_FEATURE_PROCESS_RECLAIM) && defined(CONFIG_PROCESS_RECLAIM)
+/* flag that current task is process reclaimer */
+#define PF_RECLAIM_SHRINK	0x02000000	/* Flag the task is memory compresser */
+
+#define current_is_reclaimer() (current->flags & PF_RECLAIM_SHRINK)
+#endif
 
 /*
  * Only the _current_ task can read/write to tsk->flags, but other
@@ -1892,17 +1982,37 @@ extern int wake_up_state(struct task_struct *tsk, unsigned int state);
 extern int wake_up_process(struct task_struct *tsk);
 extern void wake_up_new_task(struct task_struct *tsk);
 
+#ifdef CONFIG_OPLUS_ION_BOOSTPOOL
+extern pid_t alloc_svc_tgid;
+#endif
+
 #ifdef CONFIG_SMP
 extern void kick_process(struct task_struct *tsk);
 #else
 static inline void kick_process(struct task_struct *tsk) { }
 #endif
 
-extern void __set_task_comm(struct task_struct *tsk, const char *from, bool exec);
 
+#ifdef CONFIG_LOCKING_NO_PREEMPT_WAKEUP
+extern pid_t save_audio_tgid;
+#endif
+
+extern void __set_task_comm(struct task_struct *tsk, const char *from, bool exec);
 static inline void set_task_comm(struct task_struct *tsk, const char *from)
 {
 	__set_task_comm(tsk, from, false);
+#ifdef CONFIG_OPLUS_ION_BOOSTPOOL
+	if (!strncmp(from, "allocator-servi", TASK_COMM_LEN))
+		alloc_svc_tgid = tsk->tgid;
+#endif
+#ifdef CONFIG_LOCKING_NO_PREEMPT_WAKEUP
+	if (strstr(from, "AGMIPC@1.0-serv") ||
+			strstr(from, "audioserver") ||
+			strstr(from, "audio.service_6"))
+		tsk->preempt_locking_context = true;
+	if (save_audio_tgid && (tsk->tgid == save_audio_tgid))
+		tsk->preempt_locking_context = true;
+#endif
 }
 
 extern char *__get_task_comm(char *to, size_t len, struct task_struct *tsk);

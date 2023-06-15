@@ -103,6 +103,7 @@ source "drivers/usb/Kconfig"
 
 source "drivers/uwb/Kconfig"
 
+#source "drivers/ommc/Kconfig"
 source "drivers/mmc/Kconfig"
 
 source "drivers/memstick/Kconfig"
@@ -232,4 +233,9 @@ source "drivers/sensors/Kconfig"
 source "drivers/gpu/msm/Kconfig"
 
 source "drivers/energy_model/Kconfig"
+
+##ifdef OPLUS_FEATURE_BRINGUP
+source "drivers/nfc/pn553-i2c/Kconfig"
+##endif /* OPLUS_FEATURE_NFC_BRINGUP */
+
 endmenu

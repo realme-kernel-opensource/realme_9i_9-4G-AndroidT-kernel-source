@@ -1537,7 +1537,11 @@ static const struct msm_pingroup khaje_groups[] = {
 };
 
 static const int khaje_reserved_gpios[] = {
+#ifdef OPLUS_FEATURE_CHG_BASIC
+	-1
+#else
 	0, 1, 2, 3, -1
+#endif /*OPLUS_FEATURE_CHG_BASIC*/
 };
 
 static const struct msm_pinctrl_soc_data khaje_pinctrl = {
